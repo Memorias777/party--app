@@ -1,98 +1,94 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Button, Text, Alert } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import { supabase } from '../../supabase.js';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+export default function IndexScreen() {
+  const [eventos, setEventos] = useState<any[]>([]);
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+  // Función para traer las fiestas de tu Supabase
+  const fetchEventos = async () => {
+    const { data, error } = await supabase.from('eventos').select('*');
+    if (error) {
+      console.log('Error trayendo eventos:', error);
+    } else {
+      setEventos(data);
+    }
+  };
+
+  // Esto hace que se carguen los eventos en cuanto abres la app
+  useEffect(() => {
+    fetchEventos();
+  }, []);
+
+  // Función para crear una fiesta falsa rápida en el mapa
+  const crearFiestaPrueba = async () => {
+    // Generamos coordenadas un poco al azar alrededor del centro para que no se encimen
+    const latRandom = 22.7709 + (Math.random() * 0.02 - 0.01);
+    const lngRandom = -102.5832 + (Math.random() * 0.02 - 0.01);
+
+    const { error } = await supabase.from('eventos').insert([
+      {
+        titulo: 'Fiesta Beta Creada desde App',
+        lugar: 'Ubicación Secreta',
+        latitud: latRandom,
+        longitud: lngRandom,
+        fecha_hora: new Date().toISOString(),
+        tiene_cover: false,
+        es_byob: true,
+        solo_mayores: true
+      }
+    ]);
+
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      Alert.alert('¡Éxito!', 'Fiesta creada en la base de datos');
+      fetchEventos(); // Recargamos el mapa para ver el pin nuevo
+    }
+  };
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
-
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+    <View style={styles.container}>
+      {/* Mapa centrado en tu ciudad */}
+      <MapView
+        style={styles.map}
+        initialRegion={{
+          latitude: 22.7709,
+          longitude: -102.5832,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }}
+      >
+        {/* Aquí pintamos un marcador por cada fiesta en la base de datos */}
+        {eventos.map((ev: any) => (
+          <Marker 
+            key={ev.id} 
+            coordinate={{ latitude: ev.latitud, longitude: ev.longitud }} 
+            title={ev.titulo}
+            description={ev.lugar}
           />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+        ))}
+      </MapView>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      {/* Interfaz fea pero funcional */}
+      <View style={styles.uiContainer}>
+        <Text style={styles.title}>Mapa de Eventos (Beta)</Text>
+        <Text style={styles.counter}>Fiestas activas: {eventos.length}</Text>
+        <Button title="Crear Fiesta de Prueba" onPress={crearFiestaPrueba} color="#ff3b30" />
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+  container: { flex: 1 },
+  map: { flex: 1 },
+  uiContainer: {
+    padding: 20,
+    backgroundColor: '#1c1c1e',
+    paddingBottom: 40, // Espacio para el iPhone/Android
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+  title: { color: 'white', fontSize: 20, fontWeight: 'bold', marginBottom: 5 },
+  counter: { color: '#8e8e93', marginBottom: 15 },
 });
