@@ -242,22 +242,43 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   counterText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  markerContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+markerContainer: {
+    // Mantenemos tu tamaño perfecto descubierto
+    width: 30,
+    height: 30,
+    
+    // TRUCO DE LA GOTA: Tres esquinas circulares y una puntiaguda (abajo a la derecha)
+    borderTopLeftRadius: 18.25,
+    borderTopRightRadius: 18.25,
+    borderBottomLeftRadius: 18.25,
+    borderBottomRightRadius: 0, // Esta esquina casi recta crea el pico del pin
+    
     backgroundColor: '#fff',
-    borderWidth: 3,
+    borderWidth: 3.5, // Tu grosor original
     borderColor: '#ff3b30',
     alignItems: 'center',
     justifyContent: 'center',
+    
+    // Giramos la gota 45 grados para que la punta mire exactamente hacia abajo
+    transform: [{ rotate: '45deg' }],
+    
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowRadius: 3,
     elevation: 6,
+    
+    // Pequeño ajuste para que la punta sea el centro real en el mapa
+    marginBottom: 8, 
   },
-  markerEmoji: { fontSize: 20 },
+  markerEmoji: { 
+    fontSize: 16, // Reducimos un poquito para que flote perfecto en el centro
+    
+    // CONTRARRESTAR ROTACIÓN: Giramos el emoji -45 grados al lado opuesto
+    // para que la cerveza o la carita no se vean chuecas
+    transform: [{ rotate: '-45deg' }],
+    textAlign: 'center',
+  },
   detailCard: {
     position: 'absolute',
     bottom: 0,

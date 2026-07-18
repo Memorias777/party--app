@@ -11,24 +11,70 @@ import {
   Platform,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../../supabase.js';
 
-const EMOJIS_DISPONIBLES = ['🥳', '🍻', '🎶', '🔥', '🎉', '🍾', '🎸', '🕺'];
+// 2. Tipos de fiesta con sus emojis asignados automáticamente
+const TIPOS_FIESTA = [
+  { label: 'Antro', emoji: '🪩' },
+  { label: 'Callejoneada', emoji: '🤠' },
+  { label: 'Norteño', emoji: '🌵' },
+];
 
 export default function CrearScreen() {
+  // 1. Título y Lugar
   const [titulo, setTitulo] = useState('');
   const [lugar, setLugar] = useState('');
+  
+  // 2. Tipo de Fiesta (Emoji automático)
+  const [tipoSeleccionado, setTipoSeleccionado] = useState(TIPOS_FIESTA[0]);
+
+  // 3. Coordenadas ocultas para el mapa
+  const [coordenadas, setCoordenadas] = useState({
+    latitud: 22.7709,
+    longitud: -102.5832,
+  });
+
+  // 4. Fechas sin crasheos
   const [fechaHora, setFechaHora] = useState(new Date());
+  const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
   const [mostrarPicker, setMostrarPicker] = useState(false);
+
+  // 5. Sistema de Cover y Etapas
   const [tieneCover, setTieneCover] = useState(false);
+  const [esPorEtapas, setEsPorEtapas] = useState(false);
+  const [precioUnico, setPrecioUnico] = useState('');
+  const [etapas, setEtapas] = useState([{ precio: '', fechas: '' }]);
+
+  // Otros
   const [esByob, setEsByob] = useState(false);
   const [soloMayores, setSoloMayores] = useState(false);
-  const [emojiSeleccionado, setEmojiSeleccionado] = useState('🥳');
   const [publicando, setPublicando] = useState(false);
+
+  // --- Funciones Lógicas ---
 
   const onChangeFecha = (event: any, selectedDate?: Date) => {
     setMostrarPicker(Platform.OS === 'ios');
     if (selectedDate) setFechaHora(selectedDate);
+  };
+
+  const abrirPicker = (mode: 'date' | 'time') => {
+    setPickerMode(mode);
+    setMostrarPicker(true);
+  };
+
+  const agregarEtapa = () => {
+    if (etapas.length < 5) {
+      setEtapas([...etapas, { precio: '', fechas: '' }]);
+    } else {
+      Alert.alert('Límite alcanzado', 'Solo puedes agregar un máximo de 5 etapas.');
+    }
+  };
+
+  const actualizarEtapa = (index: number, campo: 'precio' | 'fechas', valor: string) => {
+    const nuevasEtapas = [...etapas];
+    nuevasEtapas[index][campo] = valor;
+    setEtapas(nuevasEtapas);
   };
 
   const publicarFiesta = async () => {
@@ -39,114 +85,154 @@ export default function CrearScreen() {
 
     setPublicando(true);
 
-    // Coordenadas simuladas cerca del centro de Zacatecas (ajusta con un selector de mapa real después)
-    const latitud = 22.7709 + (Math.random() * 0.02 - 0.01);
-    const longitud = -102.5832 + (Math.random() * 0.02 - 0.01);
+    // Preparar los datos del cover para guardarlos limpios en la base de datos (puedes guardarlo como texto o JSON en el futuro)
+    const infoCover = tieneCover
+      ? esPorEtapas
+        ? JSON.stringify(etapas)
+        : precioUnico
+      : 'Sin Cover';
 
+    // Aquí irá tu conexión a Supabase. 
+    // Console.log temporal para que veas cómo se arma el paquete de datos perfectos:
+    // Inserción real a la base de datos de Supabase
     const { error } = await supabase.from('eventos').insert([
       {
         titulo,
         lugar,
-        latitud,
-        longitud,
+        latitud: coordenadas.latitud,
+        longitud: coordenadas.longitud,
         fecha_hora: fechaHora.toISOString(),
         tiene_cover: tieneCover,
+        info_cover: infoCover,
         es_byob: esByob,
         solo_mayores: soloMayores,
-        emoji: emojiSeleccionado,
-      },
+        emoji: tipoSeleccionado.emoji,
+        tipo_fiesta: tipoSeleccionado.label,
+      }
     ]);
 
     setPublicando(false);
 
     if (error) {
-      Alert.alert('Error', error.message);
+      Alert.alert('Error de conexión', error.message);
+      console.log('Error detallado:', error);
     } else {
-      Alert.alert('¡Publicada!', 'Tu fiesta ya está visible en el mapa 🎉');
+      Alert.alert('¡Publicada!', 'La fiesta ya está visible en el mapa 🎉');
+      
+      // Limpiamos el formulario para la siguiente fiesta
       setTitulo('');
       setLugar('');
-      setFechaHora(new Date());
       setTieneCover(false);
-      setEsByob(false);
-      setSoloMayores(false);
-      setEmojiSeleccionado('🥳');
+      setEsPorEtapas(false);
+      setPrecioUnico('');
+      setEtapas([{ precio: '', fechas: '' }]);
     }
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.header}>Crear Fiesta 🎉</Text>
-      <Text style={styles.subheader}>Comparte tu evento con la ciudad</Text>
+      <Text style={styles.subheader}>Configura los detalles del evento</Text>
 
-      {/* Selector de emoji */}
-      <Text style={styles.label}>Ícono del pin</Text>
-      <View style={styles.emojiRow}>
-        {EMOJIS_DISPONIBLES.map((emoji) => (
-          <TouchableOpacity
-            key={emoji}
-            style={[
-              styles.emojiOption,
-              emojiSeleccionado === emoji && styles.emojiOptionSelected,
-            ]}
-            onPress={() => setEmojiSeleccionado(emoji)}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.emojiOptionText}>{emoji}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Título */}
+       {/* 1. TÍTULO */}
       <Text style={styles.label}>Título de la fiesta</Text>
       <TextInput
         style={styles.input}
-        placeholder="Ej. Noche de Mezcal en el Centro"
+        placeholder="Ej. Noche de Rock"
         placeholderTextColor="#8e8e93"
         value={titulo}
         onChangeText={setTitulo}
       />
 
-      {/* Lugar */}
-      <Text style={styles.label}>Lugar</Text>
+      {/* 2. TIPO DE FIESTA (Emoji automático) */}
+      <Text style={styles.label}>Tipo de Evento</Text>
+      <View style={styles.tiposRow}>
+        {TIPOS_FIESTA.map((tipo) => (
+          <TouchableOpacity
+            key={tipo.label}
+            style={[
+              styles.tipoBoton,
+              tipoSeleccionado.label === tipo.label && styles.tipoBotonActivo,
+            ]}
+            onPress={() => setTipoSeleccionado(tipo)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.tipoTextoEmoji}>{tipo.emoji}</Text>
+            <Text
+              style={[
+                styles.tipoTexto,
+                tipoSeleccionado.label === tipo.label && styles.tipoTextoActivo,
+              ]}
+            >
+              {tipo.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* 3. LUGAR Y MINI-MAPA */}
+      <Text style={styles.label}>Ubicación</Text>
       <TextInput
         style={styles.input}
-        placeholder="Ej. Plaza de Armas"
+        placeholder="Nombre del lugar (Ej. Plaza de Armas)"
         placeholderTextColor="#8e8e93"
         value={lugar}
         onChangeText={setLugar}
       />
+      <Text style={styles.hintText}>Toca el mapa para fijar el punto exacto:</Text>
+      <View style={styles.mapContainer}>
+        <MapView
+          style={styles.miniMap}
+          initialRegion={{
+            latitude: 22.7709,
+            longitude: -102.5832,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
+          }}
+          onPress={(e) =>
+            setCoordenadas({
+              latitud: e.nativeEvent.coordinate.latitude,
+              longitud: e.nativeEvent.coordinate.longitude,
+            })
+          }
+        >
+          <Marker
+            coordinate={{
+              latitude: coordenadas.latitud,
+              longitude: coordenadas.longitud,
+            }}
+          />
+        </MapView>
+      </View>
 
-      {/* Fecha y hora */}
-      <Text style={styles.label}>Fecha y hora</Text>
-      <TouchableOpacity
-        style={styles.dateButton}
-        onPress={() => setMostrarPicker(true)}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.dateButtonText}>
-          🗓️{' '}
-          {fechaHora.toLocaleString('es-MX', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
-      </TouchableOpacity>
+      {/* 4. FECHA Y HORA (Separados para evitar crasheos) */}
+      <Text style={styles.label}>Fecha y Hora</Text>
+      <View style={styles.fechasRow}>
+        <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('date')}>
+          <Text style={styles.dateButtonText}>
+            🗓️ {fechaHora.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('time')}>
+          <Text style={styles.dateButtonText}>
+            ⏰ {fechaHora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {mostrarPicker && (
         <DateTimePicker
           value={fechaHora}
-          mode="datetime"
+          mode={pickerMode}
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
           onChange={onChangeFecha}
           themeVariant="dark"
         />
       )}
 
-      {/* Switches */}
+      {/* 5. COVER Y ETAPAS */}
       <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>💵 Tiene cover</Text>
+        <Text style={styles.switchLabel}>💵 Tiene Cover</Text>
         <Switch
           value={tieneCover}
           onValueChange={setTieneCover}
@@ -155,8 +241,62 @@ export default function CrearScreen() {
         />
       </View>
 
+      {tieneCover && (
+        <View style={styles.coverPanel}>
+          <View style={styles.switchRowCover}>
+            <Text style={styles.switchLabel}>¿Venta por Etapas?</Text>
+            <Switch
+              value={esPorEtapas}
+              onValueChange={setEsPorEtapas}
+              trackColor={{ false: '#3a3a3c', true: '#ff3b30' }}
+              thumbColor="#fff"
+            />
+          </View>
+
+          {!esPorEtapas ? (
+            <View style={{ marginTop: 10 }}>
+              <TextInput
+                style={styles.input}
+                placeholder="Precio total (Ej. $150)"
+                placeholderTextColor="#8e8e93"
+                keyboardType="numeric"
+                value={precioUnico}
+                onChangeText={setPrecioUnico}
+              />
+            </View>
+          ) : (
+            <View style={{ marginTop: 10 }}>
+              {etapas.map((etapa, index) => (
+                <View key={index} style={styles.etapaCard}>
+                  <Text style={styles.etapaTitle}>Etapa {index + 1}</Text>
+                  <TextInput
+                    style={styles.inputPequeño}
+                    placeholder="Costo (Ej. $100)"
+                    placeholderTextColor="#8e8e93"
+                    value={etapa.precio}
+                    onChangeText={(text) => actualizarEtapa(index, 'precio', text)}
+                  />
+                  <TextInput
+                    style={[styles.inputPequeño, { marginTop: 8 }]}
+                    placeholder="Límite (Ej. Hasta 15 de Oct)"
+                    placeholderTextColor="#8e8e93"
+                    value={etapa.fechas}
+                    onChangeText={(text) => actualizarEtapa(index, 'fechas', text)}
+                  />
+                </View>
+              ))}
+              {etapas.length < 5 && (
+                <TouchableOpacity style={styles.addEtapaButton} onPress={agregarEtapa}>
+                  <Text style={styles.addEtapaText}>+ Agregar Etapa</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+
       <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>🍺 BYOB (trae tu bebida)</Text>
+        <Text style={styles.switchLabel}>🍺 BYOB (Trae tu bebida)</Text>
         <Switch
           value={esByob}
           onValueChange={setEsByob}
@@ -175,7 +315,6 @@ export default function CrearScreen() {
         />
       </View>
 
-      {/* Botón publicar */}
       <TouchableOpacity
         style={[styles.publishButton, publicando && styles.publishButtonDisabled]}
         onPress={publicarFiesta}
@@ -183,7 +322,7 @@ export default function CrearScreen() {
         activeOpacity={0.85}
       >
         <Text style={styles.publishButtonText}>
-          {publicando ? 'Publicando...' : '🚀 Publicar Fiesta'}
+          {publicando ? 'Guardando...' : '🚀 Crear Fiesta'}
         </Text>
       </TouchableOpacity>
     </ScrollView>
@@ -194,7 +333,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   content: { padding: 24, paddingTop: 70, paddingBottom: 60 },
   header: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
-  subheader: { color: '#8e8e93', fontSize: 14, marginBottom: 28 },
+  subheader: { color: '#8e8e93', fontSize: 14, marginBottom: 20 },
   label: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 18 },
   input: {
     backgroundColor: '#1c1c1e',
@@ -206,31 +345,51 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2c2c2e',
   },
-  dateButton: {
+  
+  // Tipos de Fiesta
+  tiposRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  tipoBoton: {
+    flex: 1,
     backgroundColor: '#1c1c1e',
     borderRadius: 14,
-    paddingHorizontal: 16,
     paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+  },
+  tipoBotonActivo: {
+    borderColor: '#ff3b30',
+    backgroundColor: 'rgba(255, 59, 48, 0.1)',
+  },
+  tipoTextoEmoji: { fontSize: 24, marginBottom: 4 },
+  tipoTexto: { color: '#8e8e93', fontSize: 12, fontWeight: '600' },
+  tipoTextoActivo: { color: '#ff3b30' },
+
+  // Mini Mapa
+  hintText: { color: '#8e8e93', fontSize: 12, marginTop: 6, marginBottom: 10 },
+  mapContainer: {
+    height: 180,
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+  },
+  miniMap: { flex: 1 },
+
+  // Fechas
+  fechasRow: { flexDirection: 'row', gap: 12 },
+  dateButton: {
+    flex: 1,
+    backgroundColor: '#1c1c1e',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
     borderWidth: 1,
     borderColor: '#2c2c2e',
   },
   dateButtonText: { color: '#fff', fontSize: 15 },
-  emojiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  emojiOption: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: '#1c1c1e',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#2c2c2e',
-  },
-  emojiOptionSelected: {
-    borderColor: '#ff3b30',
-    backgroundColor: 'rgba(255, 59, 48, 0.15)',
-  },
-  emojiOptionText: { fontSize: 24 },
+
+  // Switches y Cover
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -239,11 +398,50 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    marginTop: 12,
+    marginTop: 14,
     borderWidth: 1,
     borderColor: '#2c2c2e',
   },
+  switchRowCover: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   switchLabel: { color: '#fff', fontSize: 15 },
+  coverPanel: {
+    backgroundColor: '#151515',
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+  },
+  etapaCard: {
+    backgroundColor: '#1c1c1e',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  etapaTitle: { color: '#ff3b30', fontSize: 13, fontWeight: 'bold', marginBottom: 8 },
+  inputPequeño: {
+    backgroundColor: '#2c2c2e',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: '#fff',
+    fontSize: 14,
+  },
+  addEtapaButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ff3b30',
+    borderRadius: 10,
+    borderStyle: 'dashed',
+  },
+  addEtapaText: { color: '#ff3b30', fontWeight: 'bold' },
+
   publishButton: {
     backgroundColor: '#ff3b30',
     borderRadius: 18,
