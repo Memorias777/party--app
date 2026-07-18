@@ -230,21 +230,22 @@ export default function IndexScreen() {
               style={styles.attendButton} 
               activeOpacity={0.85}
               onPress={() => {
-                if (session) {
-                  // Si tiene cuenta, lo dejamos pasar al chat/detalles (próximo paso a programar)
-                  console.log('¡Entrando a la fiesta!', selectedEvent.id);
-                } else {
-                  // Si es un "fantasma", le pedimos educadamente que haga su cuenta
-                  Alert.alert(
-                    "¡Estás a un paso!",
-                    "Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión.",
-                    [
-                      { text: "Cancelar", style: "cancel" },
-                      { text: "Ir al Login", onPress: () => router.push('/login') }
-                    ]
-                  );
-                }
-              }}
+              if (session) {
+                // Expo Router usa rutas absolutas, no necesitamos los dos puntitos.
+                // ¡Ojo a las comillas invertidas (backticks)!
+                router.push(`./fiesta/${selectedEvent.id}`);
+              } else {
+                // Si es un "fantasma", le pedimos educadamente que haga su cuenta
+                Alert.alert(
+                  "¡Estás a un paso!",
+                  "Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión.",
+                  [
+                    { text: "Cancelar", style: "cancel" },
+                    { text: "Ir al Login", onPress: () => router.push('/login') }
+                  ]
+                );
+              }
+            }}
             >
               <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
             </TouchableOpacity>
