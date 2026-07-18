@@ -1,89 +1,106 @@
-import React, { useState } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity } from 'react-native';
-
-export interface Chat {
-  id: string;
-  emoji: string;
-  nombreEvento: string;
-  ultimoMensaje: string;
-  hora: string;
-  noLeidos: number;
-}
-
-const CHATS_MOCK: Chat[] = [
-  {
-    id: '1',
-    emoji: '🥳',
-    nombreEvento: 'Noche de Mezcal en el Centro',
-    ultimoMensaje: '¡Nos vemos a las 10!',
-    hora: '9:42 PM',
-    noLeidos: 3,
-  },
-  {
-    id: '2',
-    emoji: '🎶',
-    nombreEvento: 'Fiesta en la Alameda',
-    ultimoMensaje: 'Trae algo de tomar 🍻',
-    hora: '7:15 PM',
-    noLeidos: 0,
-  },
-  {
-    id: '3',
-    emoji: '🔥',
-    nombreEvento: 'Rooftop Zacatecas',
-    ultimoMensaje: 'Ya llegamos, está increíble',
-    hora: 'Ayer',
-    noLeidos: 1,
-  },
-];
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
+import { supabase } from '../../../supabase.js';
 
 export default function ChatsScreen() {
-  const [chats] = useState<Chat[]>(CHATS_MOCK);
+  const router = useRouter();
+  const [misFiestas, setMisFiestas] = useState<any[]>([]);
+  const [cargando, setCargando] = useState(true);
 
-  const renderChat = ({ item }: { item: Chat }) => (
-    <TouchableOpacity
-      style={styles.chatItem}
-      activeOpacity={0.7}
-      onPress={() => console.log('Abrir chat:', item.id)}
-    >
-      <View style={styles.avatarContainer}>
-        <Text style={styles.avatarEmoji}>{item.emoji}</Text>
-      </View>
+  useEffect(() => {
+    const cargarMisFiestas = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setCargando(false);
+        return;
+      }
 
-      <View style={styles.chatInfo}>
-        <Text style={styles.chatTitle} numberOfLines={1}>
-          {item.nombreEvento}
-        </Text>
-        <Text style={styles.chatMessage} numberOfLines={1}>
-          {item.ultimoMensaje}
-        </Text>
-      </View>
+      // 🔥 Magia: Le pedimos a Supabase que también cuente los participantes
+      const { data, error } = await supabase
+        .from('participantes')
+        .select(`
+          evento_id,
+          eventos (
+            *,
+            participantes (count)
+          )
+        `)
+        .eq('perfil_id', user.id);
 
-      <View style={styles.chatMeta}>
-        <Text style={styles.chatHora}>{item.hora}</Text>
-        {item.noLeidos > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{item.noLeidos}</Text>
-          </View>
-        )}
+      if (data) {
+        const fiestasFormateadas = data
+          .map((participacion: any) => participacion.eventos || participacion.evento)
+          .filter(Boolean);
+          
+        setMisFiestas(fiestasFormateadas);
+      }
+      setCargando(false);
+    };
+
+    cargarMisFiestas();
+  }, []);
+
+  const renderChat = ({ item }: { item: any }) => {
+    if (!item) return null;
+
+    const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short'
+    });
+
+    // Extraemos el número de personas registradas
+    const asistentes = item.participantes?.[0]?.count || 1;
+
+    return (
+      <TouchableOpacity
+        style={styles.chatItem}
+        activeOpacity={0.7}
+        onPress={() => router.push(`../fiesta/${item.id}`)}
+      >
+        <View style={styles.avatarContainer}>
+          <Text style={styles.avatarEmoji}>{item.emoji || '🥳'}</Text>
+        </View>
+
+        <View style={styles.chatInfo}>
+          {/* 🔥 Agregamos el número de asistentes al título */}
+          <Text style={styles.chatTitle} numberOfLines={1}>
+            {item.titulo} ({asistentes} 👤)
+          </Text>
+          <Text style={styles.chatMessage} numberOfLines={1}>
+            Toca para entrar al chat...
+          </Text>
+        </View>
+
+        <View style={styles.chatMeta}>
+          <Text style={styles.chatHora}>{fecha}</Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  if (cargando) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#ff3b30" />
       </View>
-    </TouchableOpacity>
-  );
+    );
+  }
 
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Tus Fiestas 🎉</Text>
       <Text style={styles.subheader}>Eventos a los que asistes</Text>
 
-      {chats.length === 0 ? (
+      {misFiestas.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyEmoji}>👀</Text>
           <Text style={styles.emptyText}>Aún no te has unido a ninguna fiesta</Text>
         </View>
       ) : (
         <FlatList
-          data={chats}
-          keyExtractor={(item) => item.id}
+          data={misFiestas}
+          keyExtractor={(item, index) => item?.id || index.toString()}
           renderItem={renderChat}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -98,41 +115,14 @@ const styles = StyleSheet.create({
   header: { color: '#fff', fontSize: 28, fontWeight: 'bold', paddingHorizontal: 24 },
   subheader: { color: '#8e8e93', fontSize: 14, paddingHorizontal: 24, marginBottom: 20 },
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
-  chatItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1c1c1e',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-  },
-  avatarContainer: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#2c2c2e',
-    borderWidth: 2,
-    borderColor: '#ff3b30',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
+  chatItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1c1e', borderRadius: 16, padding: 14, marginBottom: 10 },
+  avatarContainer: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#2c2c2e', borderWidth: 2, borderColor: '#ff3b30', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
   avatarEmoji: { fontSize: 26 },
   chatInfo: { flex: 1 },
   chatTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   chatMessage: { color: '#8e8e93', fontSize: 14 },
   chatMeta: { alignItems: 'flex-end', marginLeft: 8 },
   chatHora: { color: '#636366', fontSize: 12, marginBottom: 6 },
-  badge: {
-    backgroundColor: '#ff3b30',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 5,
-  },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: 'bold' },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 100 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { color: '#8e8e93', fontSize: 15 },
