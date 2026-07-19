@@ -9,11 +9,12 @@ import {
   ScrollView,
   Alert,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../../supabase.js';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 
 const TIPOS_FIESTA = [
   { label: 'Antro', emoji: '🪩' },
@@ -22,8 +23,12 @@ const TIPOS_FIESTA = [
 ];
 
 export default function CrearScreen() {
-  // Estado para guardar quién es el usuario actual
+  // 🔥 Magia: Recibimos el ID (Si existe, estamos en MODO EDICIÓN)
+  const { id } = useLocalSearchParams();
+  const esEdicion = !!id;
+
   const [userId, setUserId] = useState<string | null>(null);
+  const [cargandoDatos, setCargandoDatos] = useState(esEdicion); // Cargando solo si vamos a editar
 
   const [titulo, setTitulo] = useState('');
   const [lugar, setLugar] = useState('');
@@ -42,21 +47,73 @@ export default function CrearScreen() {
   const [esByob, setEsByob] = useState(false);
   const [soloMayores, setSoloMayores] = useState(false);
   const [publicando, setPublicando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
 
-  // 1. Efecto para obtener el ID del usuario apenas abre la pantalla
+  // 1. Obtener usuario y (si es edición) rellenar los datos de la fiesta
   useEffect(() => {
-    const obtenerUsuario = async () => {
+    const inicializarPantalla = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        setUserId(user.id);
-      } else {
-        // Si por alguna razón entra aquí sin login, lo mandamos a loguearse
-        Alert.alert('Acceso Denegado', 'Necesitas iniciar sesión para crear una fiesta.');
+      if (!user) {
+        Alert.alert('Acceso Denegado', 'Necesitas iniciar sesión.');
         router.replace('/login');
+        return;
+      }
+      setUserId(user.id);
+
+      // Si estamos en MODO EDICIÓN, descargamos los datos de la fiesta
+      if (esEdicion) {
+        const { data, error } = await supabase
+          .from('eventos')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (error) {
+          Alert.alert('Error', 'No se pudo cargar la fiesta para editar.');
+          router.back();
+        } else if (data) {
+          // Seguridad: Si no eres el creador, pa' fuera
+          if (data.creador_id !== user.id) {
+            Alert.alert('Acceso Denegado', 'Solo el creador puede editar esta fiesta.');
+            router.back();
+            return;
+          }
+
+          // Rellenamos los campos con la info de la base de datos
+          setTitulo(data.titulo);
+          setLugar(data.lugar);
+          setCoordenadas({ latitud: data.latitud, longitud: data.longitud });
+          setFechaHora(new Date(data.fecha_hora));
+          setTieneCover(data.tiene_cover);
+          setEsByob(data.es_byob);
+          setSoloMayores(data.solo_mayores);
+          
+          const tipoObj = TIPOS_FIESTA.find(t => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
+          setTipoSeleccionado(tipoObj);
+
+          if (data.tiene_cover && data.info_cover) {
+            try {
+              // Intentamos ver si la info_cover es un arreglo (Etapas)
+              const coverParseado = JSON.parse(data.info_cover);
+              if (Array.isArray(coverParseado)) {
+                setEsPorEtapas(true);
+                setEtapas(coverParseado);
+              } else {
+                setPrecioUnico(data.info_cover);
+              }
+            } catch (e) {
+              // Si falla el JSON.parse, significa que es precio único normal
+              setEsPorEtapas(false);
+              setPrecioUnico(data.info_cover);
+            }
+          }
+        }
+        setCargandoDatos(false);
       }
     };
-    obtenerUsuario();
-  }, []);
+
+    inicializarPantalla();
+  }, [id]);
 
   const onChangeFecha = (event: any, selectedDate?: Date) => {
     setMostrarPicker(Platform.OS === 'ios');
@@ -79,14 +136,13 @@ export default function CrearScreen() {
     setEtapas(nuevasEtapas);
   };
 
-  const publicarFiesta = async () => {
-    // 2. Validación Básica
+  // 🔥 2. Guardar Cambios (Update) o Crear Nueva (Insert)
+  const guardarFiesta = async () => {
     if (!titulo.trim() || !lugar.trim()) {
       Alert.alert('Falta información', 'Por favor completa el título y el lugar.');
       return;
     }
 
-    // 3. Validación de Cover (Sugerencia de la IA)
     if (tieneCover && !esPorEtapas && !precioUnico.trim()) {
       Alert.alert('Falta el Cover', 'Indicaste que hay cover, por favor ingresa el precio total.');
       return;
@@ -100,93 +156,106 @@ export default function CrearScreen() {
         : precioUnico
       : 'Sin Cover';
 
-    // 4. Inserción Real conectada al Creador
-    const { error } = await supabase.from('eventos').insert([
-      {
-        creador_id: userId, // <--- MAGIA: Aquí anclamos la fiesta a tu cuenta
-        titulo,
-        lugar,
-        latitud: coordenadas.latitud,
-        longitud: coordenadas.longitud,
-        fecha_hora: fechaHora.toISOString(),
-        tiene_cover: tieneCover,
-        info_cover: infoCover,
-        es_byob: esByob,
-        solo_mayores: soloMayores,
-        emoji: tipoSeleccionado.emoji,
-        tipo_fiesta: tipoSeleccionado.label,
-      }
-    ]);
+    const payloadEvento = {
+      titulo,
+      lugar,
+      latitud: coordenadas.latitud,
+      longitud: coordenadas.longitud,
+      fecha_hora: fechaHora.toISOString(),
+      tiene_cover: tieneCover,
+      info_cover: infoCover,
+      es_byob: esByob,
+      solo_mayores: soloMayores,
+      emoji: tipoSeleccionado.emoji,
+      tipo_fiesta: tipoSeleccionado.label,
+    };
+
+    let errorDB = null;
+
+    if (esEdicion) {
+      // MODO EDICIÓN: Actualizamos la fiesta existente
+      const { error } = await supabase
+        .from('eventos')
+        .update(payloadEvento)
+        .eq('id', id);
+      errorDB = error;
+    } else {
+      // MODO CREACIÓN: Insertamos una nueva
+      const { error } = await supabase
+        .from('eventos')
+        .insert([{ ...payloadEvento, creador_id: userId }]);
+      errorDB = error;
+    }
 
     setPublicando(false);
 
-    if (error) {
-      Alert.alert('Error de conexión', error.message);
+    if (errorDB) {
+      Alert.alert('Error', errorDB.message);
     } else {
-      Alert.alert('¡Fiesta Creada!', 'Ya eres el administrador de este evento. 🎉');
-      
-      // Limpieza
-      setTitulo('');
-      setLugar('');
-      setTieneCover(false);
-      setEsPorEtapas(false);
-      setPrecioUnico('');
-      setEtapas([{ precio: '', fechas: '' }]);
-      
-      // Opcional: Mandarlo directo al mapa para que vea su creación
+      Alert.alert('¡Éxito!', esEdicion ? 'Fiesta actualizada correctamente. 🛠️' : '¡Fiesta Creada! 🎉');
       router.push('/(tabs)');
     }
   };
 
+  // 🔥 3. El Botón del Pánico (Eliminar Fiesta)
+  const eliminarFiesta = () => {
+    Alert.alert(
+      "Eliminar Fiesta",
+      "¿Estás totalmente seguro? Esto borrará el evento, los asistentes y todos los mensajes del chat para siempre.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { 
+          text: "Sí, Eliminar", 
+          style: "destructive",
+          onPress: async () => {
+            setEliminando(true);
+            const { error } = await supabase.from('eventos').delete().eq('id', id);
+            setEliminando(false);
+
+            if (error) {
+              Alert.alert('Error', 'No se pudo eliminar la fiesta.');
+            } else {
+              Alert.alert('Eliminada', 'La fiesta fue borrada del mapa.');
+              router.push('/(tabs)');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Pantalla de carga mientras trae los datos para editar
+  if (cargandoDatos) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color="#ff3b30" />
+      </View>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.header}>Crear Fiesta 🎉</Text>
-      <Text style={styles.subheader}>Configura los detalles del evento</Text>
+      <Text style={styles.header}>{esEdicion ? 'Editar Fiesta 🛠️' : 'Crear Fiesta 🎉'}</Text>
+      <Text style={styles.subheader}>{esEdicion ? 'Modifica los detalles del evento' : 'Configura los detalles del evento'}</Text>
 
       <Text style={styles.label}>Título de la fiesta</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Ej. Noche de Rock"
-        placeholderTextColor="#8e8e93"
-        value={titulo}
-        onChangeText={setTitulo}
-      />
+      <TextInput style={styles.input} placeholder="Ej. Noche de Rock" placeholderTextColor="#8e8e93" value={titulo} onChangeText={setTitulo} />
 
       <Text style={styles.label}>Tipo de Evento</Text>
       <View style={styles.tiposRow}>
         {TIPOS_FIESTA.map((tipo) => (
-          <TouchableOpacity
-            key={tipo.label}
-            style={[
-              styles.tipoBoton,
-              tipoSeleccionado.label === tipo.label && styles.tipoBotonActivo,
-            ]}
-            onPress={() => setTipoSeleccionado(tipo)}
-            activeOpacity={0.7}
-          >
+          <TouchableOpacity key={tipo.label} style={[styles.tipoBoton, tipoSeleccionado.label === tipo.label && styles.tipoBotonActivo]} onPress={() => setTipoSeleccionado(tipo)} activeOpacity={0.7}>
             <Text style={styles.tipoTextoEmoji}>{tipo.emoji}</Text>
-            <Text style={[styles.tipoTexto, tipoSeleccionado.label === tipo.label && styles.tipoTextoActivo]}>
-              {tipo.label}
-            </Text>
+            <Text style={[styles.tipoTexto, tipoSeleccionado.label === tipo.label && styles.tipoTextoActivo]}>{tipo.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
       <Text style={styles.label}>Ubicación</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Nombre del lugar (Ej. Plaza de Armas)"
-        placeholderTextColor="#8e8e93"
-        value={lugar}
-        onChangeText={setLugar}
-      />
+      <TextInput style={styles.input} placeholder="Nombre del lugar (Ej. Plaza de Armas)" placeholderTextColor="#8e8e93" value={lugar} onChangeText={setLugar} />
       <Text style={styles.hintText}>Toca el mapa para fijar el punto exacto:</Text>
       <View style={styles.mapContainer}>
-        <MapView
-          style={styles.miniMap}
-          initialRegion={{ latitude: 22.7709, longitude: -102.5832, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
-          onPress={(e) => setCoordenadas({ latitud: e.nativeEvent.coordinate.latitude, longitud: e.nativeEvent.coordinate.longitude })}
-        >
+        <MapView style={styles.miniMap} initialRegion={{ latitude: coordenadas.latitud, longitude: coordenadas.longitud, latitudeDelta: 0.02, longitudeDelta: 0.02 }} onPress={(e) => setCoordenadas({ latitud: e.nativeEvent.coordinate.latitude, longitud: e.nativeEvent.coordinate.longitude })}>
           <Marker coordinate={{ latitude: coordenadas.latitud, longitude: coordenadas.longitud }} />
         </MapView>
       </View>
@@ -202,13 +271,7 @@ export default function CrearScreen() {
       </View>
 
       {mostrarPicker && (
-        <DateTimePicker
-          value={fechaHora}
-          mode={pickerMode}
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={onChangeFecha}
-          themeVariant="dark"
-        />
+        <DateTimePicker value={fechaHora} mode={pickerMode} display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onChangeFecha} themeVariant="dark" />
       )}
 
       <View style={styles.switchRow}>
@@ -222,37 +285,17 @@ export default function CrearScreen() {
             <Text style={styles.switchLabel}>¿Venta por Etapas?</Text>
             <Switch value={esPorEtapas} onValueChange={setEsPorEtapas} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
           </View>
-
           {!esPorEtapas ? (
             <View style={{ marginTop: 10 }}>
-              <TextInput
-                style={styles.input}
-                placeholder="Precio total (Ej. 150)"
-                placeholderTextColor="#8e8e93"
-                keyboardType="numeric"
-                value={precioUnico}
-                onChangeText={setPrecioUnico}
-              />
+              <TextInput style={styles.input} placeholder="Precio total (Ej. 150)" placeholderTextColor="#8e8e93" keyboardType="numeric" value={precioUnico} onChangeText={setPrecioUnico} />
             </View>
           ) : (
             <View style={{ marginTop: 10 }}>
               {etapas.map((etapa, index) => (
                 <View key={index} style={styles.etapaCard}>
                   <Text style={styles.etapaTitle}>Etapa {index + 1}</Text>
-                  <TextInput
-                    style={styles.inputPequeño}
-                    placeholder="Costo (Ej. 100)"
-                    placeholderTextColor="#8e8e93"
-                    value={etapa.precio}
-                    onChangeText={(text) => actualizarEtapa(index, 'precio', text)}
-                  />
-                  <TextInput
-                    style={[styles.inputPequeño, { marginTop: 8 }]}
-                    placeholder="Límite (Ej. Hasta 15 de Oct)"
-                    placeholderTextColor="#8e8e93"
-                    value={etapa.fechas}
-                    onChangeText={(text) => actualizarEtapa(index, 'fechas', text)}
-                  />
+                  <TextInput style={styles.inputPequeño} placeholder="Costo (Ej. 100)" placeholderTextColor="#8e8e93" value={etapa.precio} onChangeText={(text) => actualizarEtapa(index, 'precio', text)} />
+                  <TextInput style={[styles.inputPequeño, { marginTop: 8 }]} placeholder="Límite (Ej. Hasta 15 de Oct)" placeholderTextColor="#8e8e93" value={etapa.fechas} onChangeText={(text) => actualizarEtapa(index, 'fechas', text)} />
                 </View>
               ))}
               {etapas.length < 5 && (
@@ -275,14 +318,22 @@ export default function CrearScreen() {
         <Switch value={soloMayores} onValueChange={setSoloMayores} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
       </View>
 
-      <TouchableOpacity
-        style={[styles.publishButton, publicando && styles.publishButtonDisabled]}
-        onPress={publicarFiesta}
-        disabled={publicando}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.publishButtonText}>{publicando ? 'Guardando...' : '🚀 Crear Fiesta'}</Text>
+      {/* Botón Principal (Guardar o Crear) */}
+      <TouchableOpacity style={[styles.publishButton, publicando && styles.publishButtonDisabled]} onPress={guardarFiesta} disabled={publicando} activeOpacity={0.85}>
+        <Text style={styles.publishButtonText}>{publicando ? 'Procesando...' : (esEdicion ? '🛠️ Guardar Cambios' : '🚀 Crear Fiesta')}</Text>
       </TouchableOpacity>
+
+      {/* 🔥 EL BOTÓN ROJO DE DESTRUCCIÓN (Solo aparece si estamos editando) */}
+      {esEdicion && (
+        <TouchableOpacity 
+          style={[styles.deleteButton, eliminando && styles.publishButtonDisabled]} 
+          onPress={eliminarFiesta} 
+          disabled={eliminando} 
+          activeOpacity={0.7}
+        >
+          <Text style={styles.deleteButtonText}>{eliminando ? 'Eliminando...' : '🗑️ Eliminar Fiesta'}</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 }
@@ -318,4 +369,7 @@ const styles = StyleSheet.create({
   publishButton: { backgroundColor: '#ff3b30', borderRadius: 18, paddingVertical: 18, alignItems: 'center', marginTop: 32, shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
   publishButtonDisabled: { opacity: 0.6 },
   publishButtonText: { color: '#fff', fontSize: 17, fontWeight: 'bold' },
+  // 🔥 Nuevo estilo para el botón de borrar
+  deleteButton: { backgroundColor: 'transparent', borderRadius: 18, paddingVertical: 18, alignItems: 'center', marginTop: 16, borderWidth: 1, borderColor: '#ff3b30' },
+  deleteButtonText: { color: '#ff3b30', fontSize: 17, fontWeight: 'bold' },
 });

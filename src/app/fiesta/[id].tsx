@@ -19,21 +19,21 @@ export default function FiestaDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   
-  // 🔥 REFERENCIAS PARA EL SCROLL INTELIGENTE
   const scrollViewRef = useRef<ScrollView>(null);
   const isScrolledUp = useRef(false);
   
   const [evento, setEvento] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
-  const [tabActual, setTabActual] = useState<'general' | 'aviso'>('general');
+  
+  // 🔥 CORRECCIÓN: Regresamos a 'avisos' en plural para que la base de datos nos deje pasar
+  const [tabActual, setTabActual] = useState<'general' | 'avisos'>('general');
+  
   const [userId, setUserId] = useState<string | null>(null);
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [esParticipante, setEsParticipante] = useState(false);
   const [uniendo, setUniendo] = useState(false);
-  
-  // 🔥 NUEVO ESTADO PARA EL CONTADOR
   const [asistentes, setAsistentes] = useState(1);
 
   useEffect(() => {
@@ -69,7 +69,6 @@ export default function FiestaDetailScreen() {
         }
       }
 
-      // 🔥 BUSCAMOS EL NÚMERO TOTAL DE ASISTENTES
       const { count } = await supabase
         .from('participantes')
         .select('*', { count: 'exact', head: true })
@@ -134,14 +133,14 @@ export default function FiestaDetailScreen() {
       Alert.alert('Ups', 'Hubo un problema al intentar unirte a la fiesta.');
     } else {
       setEsParticipante(true);
-      setAsistentes(prev => prev + 1); // Sumamos 1 instantáneamente
+      setAsistentes(prev => prev + 1);
     }
   };
 
   const enviarMensaje = async () => {
     if (!nuevoMensaje.trim() || !userId) return;
 
-    if (tabActual === 'aviso' && evento?.creador_id !== userId) {
+    if (tabActual === 'avisos' && evento?.creador_id !== userId) {
       Alert.alert("Acceso Denegado", "Solo el administrador puede publicar avisos.");
       return;
     }
@@ -157,7 +156,6 @@ export default function FiestaDetailScreen() {
       Alert.alert('Error de Supabase', error.message);
     } else {
       setNuevoMensaje('');
-      // Forzamos bajar al final después de enviar un mensaje propio
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
     }
   };
@@ -188,11 +186,22 @@ export default function FiestaDetailScreen() {
         <TouchableOpacity style={styles.closeIcon} onPress={() => router.back()}>
           <Ionicons name="chevron-down" size={32} color="#fff" />
         </TouchableOpacity>
-        {/* 🔥 Título con el número de personas */}
+        
         <Text style={styles.headerTitle} numberOfLines={1}>
           {evento.emoji || '🥳'} {evento.titulo} ({asistentes} 👤)
         </Text>
-        <View style={{ width: 32 }} /> 
+        
+        {/* 🔥 EL ENGRANE MAGICO (Solo aparece si eres el creador) */}
+        {evento.creador_id === userId ? (
+          <TouchableOpacity 
+            style={styles.closeIcon} 
+            onPress={() => router.push({ pathname: '/crear', params: { id: id } })}
+          >
+            <Ionicons name="settings-outline" size={26} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 32 }} /> 
+        )}
       </View>
 
       <ScrollView 
@@ -200,14 +209,11 @@ export default function FiestaDetailScreen() {
         style={styles.body} 
         contentContainerStyle={{ paddingBottom: 20 }}
         scrollEventThrottle={16}
-        // 🔥 LÓGICA INTELIGENTE: Detectamos si está subiendo a leer
         onScroll={(event) => {
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
           const distanciaAlFondo = contentSize.height - layoutMeasurement.height - contentOffset.y;
-          // Si está a más de 100 pixeles del fondo, significa que subió a leer
           isScrolledUp.current = distanciaAlFondo > 100;
         }}
-        // 🔥 AUTO-SCROLL: Baja automático si llega mensaje o abre teclado
         onContentSizeChange={() => {
           if (!isScrolledUp.current) {
             scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -250,10 +256,10 @@ export default function FiestaDetailScreen() {
                 <Text style={[styles.tabText, tabActual === 'general' && styles.tabTextActive]}>💬 Chat General</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.tab, tabActual === 'aviso' && styles.tabActive]}
-                onPress={() => setTabActual('aviso')}
+                style={[styles.tab, tabActual === 'avisos' && styles.tabActive]}
+                onPress={() => setTabActual('avisos')}
               >
-                <Text style={[styles.tabText, tabActual === 'aviso' && styles.tabTextActive]}>📢 Avisos (Admin)</Text>
+                <Text style={[styles.tabText, tabActual === 'avisos' && styles.tabTextActive]}>📢 Avisos (Admin)</Text>
               </TouchableOpacity>
             </View>
 
@@ -283,11 +289,11 @@ export default function FiestaDetailScreen() {
         )}
       </ScrollView>
 
-      {esParticipante && !(tabActual === 'aviso' && evento?.creador_id !== userId) && (
+      {esParticipante && !(tabActual === 'avisos' && evento?.creador_id !== userId) && (
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.inputBox}
-            placeholder={tabActual === 'aviso' ? "Escribe un aviso oficial..." : "Escribe un mensaje..."}
+            placeholder={tabActual === 'avisos' ? "Escribe un aviso oficial..." : "Escribe un mensaje..."}
             placeholderTextColor="#8e8e93"
             value={nuevoMensaje}
             onChangeText={setNuevoMensaje}
