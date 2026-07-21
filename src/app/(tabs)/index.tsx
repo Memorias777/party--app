@@ -158,14 +158,12 @@ export default function IndexScreen() {
       </MapView>
 
       {/* Botón de Perfil / Login */}
-      {/* Botón de Perfil / Login */}
       <TouchableOpacity 
         style={styles.profileButton}
         activeOpacity={0.8}
         onPress={() => {
           if (session) {
-            // Aquí en el futuro lo mandaremos a ver su perfil de usuario
-            Alert.alert("Tu Sesión", `Estás logueado.`);
+            router.push('/(tabs)/perfil');
           } else {
             router.push('/login');
           }
