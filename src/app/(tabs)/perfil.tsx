@@ -152,7 +152,7 @@ export default function PerfilScreen() {
 
   if (cargando) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <ActivityIndicator size="large" color="#ff3b30" />
       </View>
     );
@@ -164,100 +164,147 @@ export default function PerfilScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.header}>Tu Perfil 👤</Text>
+        
+        {/* Cabecera para salir al mapa (Opcional, pero da buena UX) */}
+        <View style={styles.headerRow}>
+          <Text style={styles.header}>Tu Perfil</Text>
+          <TouchableOpacity style={styles.closeIcon} onPress={() => router.push('/(tabs)')}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+        </View>
 
-        {/* Avatar Selector */}
-        <View style={styles.avatarSelectorContainer}>
-          <Text style={styles.avatarLabel}>Tu Avatar</Text>
-          <View style={styles.avatarGrid}>
-            {AVATARS.map((avatar) => (
-              <TouchableOpacity
-                key={avatar}
-                style={[
-                  styles.avatarOption,
-                  avatarSeleccionado === avatar && styles.avatarOptionSelected,
-                ]}
-                onPress={() => setAvatarSeleccionado(avatar)}
-              >
-                <Text style={styles.avatarOptionText}>{avatar}</Text>
+        {!editando ? (
+          /* ==========================================
+             🔥 MODO VISTA: TARJETA Y MENÚ DE OPCIONES
+             ========================================== */
+          <View>
+            <View style={styles.perfilCard}>
+              <View style={styles.avatarContainerGrande}>
+                <Text style={styles.avatarEmojiGrande}>{avatarSeleccionado}</Text>
+              </View>
+              <Text style={styles.nombreGrande}>{nombre || 'Usuario Nuevo'}</Text>
+              <Text style={styles.edadTexto}>{edad ? `${edad} años` : 'Edad no especificada'}</Text>
+              {bio ? <Text style={styles.bioTexto}>{bio}</Text> : null}
+            </View>
+
+            <View style={styles.opcionesContainer}>
+              <TouchableOpacity style={styles.btnOpcion} onPress={() => setEditando(true)}>
+                <View style={styles.opcionIzquierda}>
+                  <View style={styles.iconBox}>
+                    <Ionicons name="pencil" size={20} color="#fff" />
+                  </View>
+                  <Text style={styles.opcionTexto}>Editar Perfil</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#8e8e93" />
               </TouchableOpacity>
-            ))}
-          </View>
-        </View>
 
-        {/* Formulario de Perfil */}
-        <View style={styles.formContainer}>
-          {/* Nombre */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Nombre</Text>
-            <TextInput
-              style={[styles.input, !editando && styles.inputDisabled]}
-              placeholder="Tu nombre"
-              placeholderTextColor="#8e8e93"
-              value={nombre}
-              onChangeText={setNombre}
-              editable={editando}
-            />
-          </View>
+              <TouchableOpacity style={styles.btnOpcion} onPress={() => router.push('/(tabs)/crear')}>
+  <View style={styles.opcionIzquierda}>
+    <View style={styles.iconBox}>
+      {/* 🔥 Ícono corregido y 100% válido */}
+      <Ionicons name="musical-notes-outline" size={20} color="#fff" />
+    </View>
+    <Text style={styles.opcionTexto}>Mis Fiestas (Crear / Editar)</Text>
+  </View>
+  <Ionicons name="chevron-forward" size={20} color="#8e8e93" />
+</TouchableOpacity>
 
-          {/* Edad */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Edad</Text>
-            <TextInput
-              style={[styles.input, !editando && styles.inputDisabled]}
-              placeholder="Tu edad"
-              placeholderTextColor="#8e8e93"
-              value={edad}
-              onChangeText={(text) => setEdad(text.replace(/[^0-9]/g, ''))}
-              editable={editando}
-              keyboardType="numeric"
-              maxLength={3}
-            />
+              <TouchableOpacity style={[styles.btnOpcion, { borderBottomWidth: 0 }]} onPress={cerrarSesion}>
+                <View style={styles.opcionIzquierda}>
+                  <View style={[styles.iconBox, { backgroundColor: 'rgba(255, 59, 48, 0.15)' }]}>
+                    <Ionicons name="log-out-outline" size={20} color="#ff3b30" />
+                  </View>
+                  <Text style={[styles.opcionTexto, { color: '#ff3b30' }]}>Cerrar Sesión</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
+        ) : (
+          /* ==========================================
+             🔥 MODO EDICIÓN: TU FORMULARIO ORIGINAL
+             ========================================== */
+          <View>
+            {/* Avatar Selector */}
+            <View style={styles.avatarSelectorContainer}>
+              <Text style={styles.avatarLabel}>Tu Avatar</Text>
+              <View style={styles.avatarGrid}>
+                {AVATARS.map((avatar) => (
+                  <TouchableOpacity
+                    key={avatar}
+                    style={[
+                      styles.avatarOption,
+                      avatarSeleccionado === avatar && styles.avatarOptionSelected,
+                    ]}
+                    onPress={() => setAvatarSeleccionado(avatar)}
+                  >
+                    <Text style={styles.avatarOptionText}>{avatar}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
 
-          {/* Bio */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Bio / Descripción</Text>
-            <TextInput
-              style={[styles.bioInput, !editando && styles.inputDisabled]}
-              placeholder="Cuéntanos sobre ti..."
-              placeholderTextColor="#8e8e93"
-              value={bio}
-              onChangeText={setBio}
-              editable={editando}
-              multiline
-              maxLength={150}
-            />
-            <Text style={styles.charCount}>{bio.length}/150</Text>
-          </View>
+            {/* Formulario de Perfil */}
+            <View style={styles.formContainer}>
+              {/* Nombre */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>Nombre</Text>
+                <TextInput
+                  style={[styles.input, !editando && styles.inputDisabled]}
+                  placeholder="Tu nombre"
+                  placeholderTextColor="#8e8e93"
+                  value={nombre}
+                  onChangeText={setNombre}
+                  editable={editando}
+                />
+              </View>
 
-          {/* Email (solo lectura) */}
-          <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Correo Electrónico</Text>
-            <TextInput
-              style={[styles.input, styles.inputDisabled]}
-              placeholder="Tu correo"
-              placeholderTextColor="#8e8e93"
-              value={email}
-              editable={false}
-            />
-            <Text style={styles.helperText}>Este campo no puede ser editado</Text>
-          </View>
-        </View>
+              {/* Edad */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>Edad</Text>
+                <TextInput
+                  style={[styles.input, !editando && styles.inputDisabled]}
+                  placeholder="Tu edad"
+                  placeholderTextColor="#8e8e93"
+                  value={edad}
+                  onChangeText={(text) => setEdad(text.replace(/[^0-9]/g, ''))}
+                  editable={editando}
+                  keyboardType="numeric"
+                  maxLength={3}
+                />
+              </View>
 
-        {/* Botones */}
-        <View style={styles.buttonContainer}>
-          {!editando ? (
-            <TouchableOpacity
-              style={styles.editButton}
-              activeOpacity={0.8}
-              onPress={() => setEditando(true)}
-            >
-              <Ionicons name="pencil" size={18} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.editButtonText}>Editar Perfil</Text>
-            </TouchableOpacity>
-          ) : (
-            <>
+              {/* Bio */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>Bio / Descripción</Text>
+                <TextInput
+                  style={[styles.bioInput, !editando && styles.inputDisabled]}
+                  placeholder="Cuéntanos sobre ti..."
+                  placeholderTextColor="#8e8e93"
+                  value={bio}
+                  onChangeText={setBio}
+                  editable={editando}
+                  multiline
+                  maxLength={150}
+                />
+                <Text style={styles.charCount}>{bio.length}/150</Text>
+              </View>
+
+              {/* Email (solo lectura) */}
+              <View style={styles.fieldContainer}>
+                <Text style={styles.label}>Correo Electrónico</Text>
+                <TextInput
+                  style={[styles.input, styles.inputDisabled]}
+                  placeholder="Tu correo"
+                  placeholderTextColor="#8e8e93"
+                  value={email}
+                  editable={false}
+                />
+                <Text style={styles.helperText}>Este campo no puede ser editado</Text>
+              </View>
+            </View>
+
+            {/* Botones Guardar / Cancelar */}
+            <View style={styles.buttonContainer}>
               <TouchableOpacity
                 style={[styles.saveButton, guardando && styles.buttonDisabled]}
                 activeOpacity={0.8}
@@ -273,6 +320,7 @@ export default function PerfilScreen() {
                   </>
                 )}
               </TouchableOpacity>
+              
               <TouchableOpacity
                 style={styles.cancelButton}
                 activeOpacity={0.8}
@@ -288,19 +336,9 @@ export default function PerfilScreen() {
               >
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
-            </>
-          )}
-        </View>
-
-        {/* Botón Cerrar Sesión */}
-        <TouchableOpacity
-          style={styles.logoutButton}
-          activeOpacity={0.8}
-          onPress={cerrarSesion}
-        >
-          <Ionicons name="log-out" size={18} color="#ff3b30" style={{ marginRight: 8 }} />
-          <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
-        </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -313,15 +351,101 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 70,
+    paddingTop: 60,
     paddingBottom: 40,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
   },
   header: {
     color: '#fff',
     fontSize: 28,
     fontWeight: 'bold',
-    marginBottom: 24,
   },
+  closeIcon: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 20,
+    padding: 6,
+  },
+
+  // 🔥 Estilos de la nueva Tarjeta de Perfil y Menú
+  perfilCard: {
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    borderRadius: 20,
+    padding: 24,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#2c2c2e',
+  },
+  avatarContainerGrande: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#2c2c2e',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  avatarEmojiGrande: {
+    fontSize: 50,
+  },
+  nombreGrande: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  edadTexto: {
+    color: '#8e8e93',
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  bioTexto: {
+    color: '#d1d1d6',
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    lineHeight: 20,
+  },
+  opcionesContainer: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  btnOpcion: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2c2c2e',
+  },
+  opcionIzquierda: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconBox: {
+    backgroundColor: '#2c2c2e',
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16,
+  },
+  opcionTexto: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+
+  // 🔥 Tus estilos originales del Formulario
   avatarSelectorContainer: {
     backgroundColor: '#1c1c1e',
     borderRadius: 18,
@@ -407,19 +531,6 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
-  editButton: {
-    backgroundColor: '#ff3b30',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  editButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   saveButton: {
     backgroundColor: '#34c759',
     borderRadius: 12,
@@ -446,20 +557,5 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
-  },
-  logoutButton: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderColor: '#ff3b30',
-  },
-  logoutButtonText: {
-    color: '#ff3b30',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });

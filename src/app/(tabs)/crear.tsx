@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -10,11 +10,13 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
+  FlatList,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../../supabase.js';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
 const TIPOS_FIESTA = [
   { label: 'Antro', emoji: '🪩' },
@@ -23,12 +25,18 @@ const TIPOS_FIESTA = [
 ];
 
 export default function CrearScreen() {
-  // 🔥 Magia: Recibimos el ID (Si existe, estamos en MODO EDICIÓN)
-  const { id } = useLocalSearchParams();
-  const esEdicion = !!id;
-
+  // Parámetro de URL (por si venimos del engrane del chat)
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  
+  // 🔥 ESTADO DEL DASHBOARD
+  const [vista, setVista] = useState<'lista' | 'formulario'>('lista');
+  const [misFiestas, setMisFiestas] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
-  const [cargandoDatos, setCargandoDatos] = useState(esEdicion); // Cargando solo si vamos a editar
+  const [cargandoDatos, setCargandoDatos] = useState(true);
+
+  // 🔥 ESTADO DEL FORMULARIO ORIGINAL
+  const [eventoEditandoId, setEventoEditandoId] = useState<string | null>(null);
+  const esEdicion = !!eventoEditandoId;
 
   const [titulo, setTitulo] = useState('');
   const [lugar, setLugar] = useState('');
@@ -49,72 +57,114 @@ export default function CrearScreen() {
   const [publicando, setPublicando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
 
-  // 1. Obtener usuario y (si es edición) rellenar los datos de la fiesta
-  useEffect(() => {
-    const inicializarPantalla = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Acceso Denegado', 'Necesitas iniciar sesión.');
-        router.replace('/login');
-        return;
-      }
-      setUserId(user.id);
+  // 1. Cargar datos iniciales al entrar a la pantalla
+  useFocusEffect(
+    useCallback(() => {
+      const inicializarPantalla = async () => {
+        setCargandoDatos(true);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          Alert.alert('Acceso Denegado', 'Necesitas iniciar sesión.');
+          router.replace('/login');
+          return;
+        }
+        setUserId(user.id);
+        
+        // Cargamos la lista de fiestas para el dashboard
+        await cargarListaFiestas(user.id);
 
-      // Si estamos en MODO EDICIÓN, descargamos los datos de la fiesta
-      if (esEdicion) {
-        const { data, error } = await supabase
-          .from('eventos')
-          .select('*')
-          .eq('id', id)
-          .single();
-
-        if (error) {
-          Alert.alert('Error', 'No se pudo cargar la fiesta para editar.');
-          router.back();
-        } else if (data) {
-          // Seguridad: Si no eres el creador, pa' fuera
-          if (data.creador_id !== user.id) {
-            Alert.alert('Acceso Denegado', 'Solo el creador puede editar esta fiesta.');
-            router.back();
-            return;
-          }
-
-          // Rellenamos los campos con la info de la base de datos
-          setTitulo(data.titulo);
-          setLugar(data.lugar);
-          setCoordenadas({ latitud: data.latitud, longitud: data.longitud });
-          setFechaHora(new Date(data.fecha_hora));
-          setTieneCover(data.tiene_cover);
-          setEsByob(data.es_byob);
-          setSoloMayores(data.solo_mayores);
-          
-          const tipoObj = TIPOS_FIESTA.find(t => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
-          setTipoSeleccionado(tipoObj);
-
-          if (data.tiene_cover && data.info_cover) {
-            try {
-              // Intentamos ver si la info_cover es un arreglo (Etapas)
-              const coverParseado = JSON.parse(data.info_cover);
-              if (Array.isArray(coverParseado)) {
-                setEsPorEtapas(true);
-                setEtapas(coverParseado);
-              } else {
-                setPrecioUnico(data.info_cover);
-              }
-            } catch (e) {
-              // Si falla el JSON.parse, significa que es precio único normal
-              setEsPorEtapas(false);
-              setPrecioUnico(data.info_cover);
-            }
-          }
+        // Si entramos con un ID desde otra pantalla, abrimos el formulario en modo edición
+        if (id) {
+          await cargarFiestaParaEditar(id, user.id);
+        } else {
+          setVista('lista');
         }
         setCargandoDatos(false);
+      };
+
+      inicializarPantalla();
+    }, [id])
+  );
+
+  const cargarListaFiestas = async (uid: string) => {
+    const { data } = await supabase
+      .from('eventos')
+      .select('*')
+      .eq('creador_id', uid)
+      .order('fecha_hora', { ascending: false });
+    
+    setMisFiestas(data || []);
+  };
+
+  const limpiarFormulario = () => {
+    setEventoEditandoId(null);
+    setTitulo('');
+    setLugar('');
+    setTipoSeleccionado(TIPOS_FIESTA[0]);
+    setCoordenadas({ latitud: 22.7709, longitud: -102.5832 });
+    setFechaHora(new Date());
+    setTieneCover(false);
+    setEsPorEtapas(false);
+    setPrecioUnico('');
+    setEtapas([{ precio: '', fechas: '' }]);
+    setEsByob(false);
+    setSoloMayores(false);
+  };
+
+  const prepararNuevaFiesta = () => {
+    limpiarFormulario();
+    setVista('formulario');
+    router.setParams({ id: '' }); // Limpiamos la URL
+  };
+
+  const cargarFiestaParaEditar = async (fiestaId: string, uid?: string) => {
+    setCargandoDatos(true);
+    const { data, error } = await supabase.from('eventos').select('*').eq('id', fiestaId).single();
+
+    if (error || !data) {
+      Alert.alert('Error', 'No se pudo cargar la fiesta para editar.');
+      setVista('lista');
+    } else {
+      if (uid && data.creador_id !== uid) {
+        Alert.alert('Acceso Denegado', 'Solo el creador puede editar esta fiesta.');
+        setVista('lista');
+        setCargandoDatos(false);
+        return;
       }
-    };
 
-    inicializarPantalla();
-  }, [id]);
+      setEventoEditandoId(data.id);
+      setTitulo(data.titulo);
+      setLugar(data.lugar);
+      setCoordenadas({ latitud: data.latitud, longitud: data.longitud });
+      setFechaHora(new Date(data.fecha_hora));
+      setTieneCover(data.tiene_cover);
+      setEsByob(data.es_byob);
+      setSoloMayores(data.solo_mayores);
+      
+      const tipoObj = TIPOS_FIESTA.find(t => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
+      setTipoSeleccionado(tipoObj);
 
+      if (data.tiene_cover && data.info_cover) {
+        try {
+          const coverParseado = JSON.parse(data.info_cover);
+          if (Array.isArray(coverParseado)) {
+            setEsPorEtapas(true);
+            setEtapas(coverParseado);
+          } else {
+            setEsPorEtapas(false);
+            setPrecioUnico(data.info_cover);
+          }
+        } catch (e) {
+          setEsPorEtapas(false);
+          setPrecioUnico(data.info_cover);
+        }
+      }
+      setVista('formulario');
+    }
+    setCargandoDatos(false);
+  };
+
+  // Funciones del Formulario Original
   const onChangeFecha = (event: any, selectedDate?: Date) => {
     setMostrarPicker(Platform.OS === 'ios');
     if (selectedDate) setFechaHora(selectedDate);
@@ -136,7 +186,7 @@ export default function CrearScreen() {
     setEtapas(nuevasEtapas);
   };
 
-  // 🔥 2. Guardar Cambios (Update) o Crear Nueva (Insert)
+  // 2. Guardar Cambios (Update) o Crear Nueva (Insert)
   const guardarFiesta = async () => {
     if (!titulo.trim() || !lugar.trim()) {
       Alert.alert('Falta información', 'Por favor completa el título y el lugar.');
@@ -173,17 +223,10 @@ export default function CrearScreen() {
     let errorDB = null;
 
     if (esEdicion) {
-      // MODO EDICIÓN: Actualizamos la fiesta existente
-      const { error } = await supabase
-        .from('eventos')
-        .update(payloadEvento)
-        .eq('id', id);
+      const { error } = await supabase.from('eventos').update(payloadEvento).eq('id', eventoEditandoId);
       errorDB = error;
     } else {
-      // MODO CREACIÓN: Insertamos una nueva
-      const { error } = await supabase
-        .from('eventos')
-        .insert([{ ...payloadEvento, creador_id: userId }]);
+      const { error } = await supabase.from('eventos').insert([{ ...payloadEvento, creador_id: userId }]);
       errorDB = error;
     }
 
@@ -193,11 +236,13 @@ export default function CrearScreen() {
       Alert.alert('Error', errorDB.message);
     } else {
       Alert.alert('¡Éxito!', esEdicion ? 'Fiesta actualizada correctamente. 🛠️' : '¡Fiesta Creada! 🎉');
-      router.push('/(tabs)');
+      router.setParams({ id: '' });
+      if (userId) await cargarListaFiestas(userId);
+      setVista('lista');
     }
   };
 
-  // 🔥 3. El Botón del Pánico (Eliminar Fiesta)
+  // 3. El Botón del Pánico (Eliminar Fiesta)
   const eliminarFiesta = () => {
     Alert.alert(
       "Eliminar Fiesta",
@@ -209,14 +254,16 @@ export default function CrearScreen() {
           style: "destructive",
           onPress: async () => {
             setEliminando(true);
-            const { error } = await supabase.from('eventos').delete().eq('id', id);
+            const { error } = await supabase.from('eventos').delete().eq('id', eventoEditandoId);
             setEliminando(false);
 
             if (error) {
               Alert.alert('Error', 'No se pudo eliminar la fiesta.');
             } else {
               Alert.alert('Eliminada', 'La fiesta fue borrada del mapa.');
-              router.push('/(tabs)');
+              router.setParams({ id: '' });
+              if (userId) await cargarListaFiestas(userId);
+              setVista('lista');
             }
           }
         }
@@ -224,7 +271,6 @@ export default function CrearScreen() {
     );
   };
 
-  // Pantalla de carga mientras trae los datos para editar
   if (cargandoDatos) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
@@ -233,8 +279,66 @@ export default function CrearScreen() {
     );
   }
 
+  // 🔥 VISTA DASHBOARD (Mis Fiestas)
+  if (vista === 'lista') {
+    return (
+      <View style={styles.containerLista}>
+        <View style={styles.headerLista}>
+          <TouchableOpacity onPress={() => router.push('/(tabs)/perfil')} style={styles.btnVolver}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.tituloSeccion}>Mis Fiestas</Text>
+        </View>
+
+        <TouchableOpacity style={styles.btnPrincipalDashboard} onPress={prepararNuevaFiesta} activeOpacity={0.8}>
+          <Text style={styles.btnTextoDashboard}>🎉 Crear Nueva Fiesta</Text>
+        </TouchableOpacity>
+
+        <FlatList
+          data={misFiestas}
+          keyExtractor={item => item.id.toString()}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.tarjeta} onPress={() => cargarFiestaParaEditar(item.id)} activeOpacity={0.7}>
+              <View style={styles.tarjetaTop}>
+                <Text style={styles.tarjetaEmoji}>{item.emoji || '🥳'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.tarjetaTitulo}>{item.titulo}</Text>
+                  <Text style={styles.tarjetaLugar}>📍 {item.lugar}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="#8e8e93" />
+              </View>
+              <Text style={styles.tarjetaFecha}>
+                🗓️ {new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </TouchableOpacity>
+          )}
+          ListEmptyComponent={
+            <View style={styles.vacioContainer}>
+              <Ionicons name="sad-outline" size={64} color="#3a3a3c" />
+              <Text style={styles.vacioTexto}>No has creado ninguna fiesta aún.</Text>
+            </View>
+          }
+        />
+      </View>
+    );
+  }
+
+  // 🔥 VISTA FORMULARIO (Tu código original)
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Botón para regresar al Dashboard */}
+      <TouchableOpacity 
+        style={{ marginBottom: 20, flexDirection: 'row', alignItems: 'center' }} 
+        onPress={() => {
+          router.setParams({ id: '' });
+          setVista('lista');
+        }}
+      >
+        <Ionicons name="arrow-back" size={24} color="#ff3b30" />
+        <Text style={{ color: '#ff3b30', fontSize: 16, fontWeight: '600', marginLeft: 8 }}>Volver a mis fiestas</Text>
+      </TouchableOpacity>
+
       <Text style={styles.header}>{esEdicion ? 'Editar Fiesta 🛠️' : 'Crear Fiesta 🎉'}</Text>
       <Text style={styles.subheader}>{esEdicion ? 'Modifica los detalles del evento' : 'Configura los detalles del evento'}</Text>
 
@@ -318,19 +422,12 @@ export default function CrearScreen() {
         <Switch value={soloMayores} onValueChange={setSoloMayores} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
       </View>
 
-      {/* Botón Principal (Guardar o Crear) */}
       <TouchableOpacity style={[styles.publishButton, publicando && styles.publishButtonDisabled]} onPress={guardarFiesta} disabled={publicando} activeOpacity={0.85}>
         <Text style={styles.publishButtonText}>{publicando ? 'Procesando...' : (esEdicion ? '🛠️ Guardar Cambios' : '🚀 Crear Fiesta')}</Text>
       </TouchableOpacity>
 
-      {/* 🔥 EL BOTÓN ROJO DE DESTRUCCIÓN (Solo aparece si estamos editando) */}
       {esEdicion && (
-        <TouchableOpacity 
-          style={[styles.deleteButton, eliminando && styles.publishButtonDisabled]} 
-          onPress={eliminarFiesta} 
-          disabled={eliminando} 
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={[styles.deleteButton, eliminando && styles.publishButtonDisabled]} onPress={eliminarFiesta} disabled={eliminando} activeOpacity={0.7}>
           <Text style={styles.deleteButtonText}>{eliminando ? 'Eliminando...' : '🗑️ Eliminar Fiesta'}</Text>
         </TouchableOpacity>
       )}
@@ -338,9 +435,10 @@ export default function CrearScreen() {
   );
 }
 
+// Tus estilos intactos + Estilos del Dashboard
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24, paddingTop: 70, paddingBottom: 60 },
+  content: { padding: 24, paddingTop: 60, paddingBottom: 60 },
   header: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
   subheader: { color: '#8e8e93', fontSize: 14, marginBottom: 20 },
   label: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 18 },
@@ -369,7 +467,22 @@ const styles = StyleSheet.create({
   publishButton: { backgroundColor: '#ff3b30', borderRadius: 18, paddingVertical: 18, alignItems: 'center', marginTop: 32, shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
   publishButtonDisabled: { opacity: 0.6 },
   publishButtonText: { color: '#fff', fontSize: 17, fontWeight: 'bold' },
-  // 🔥 Nuevo estilo para el botón de borrar
   deleteButton: { backgroundColor: 'transparent', borderRadius: 18, paddingVertical: 18, alignItems: 'center', marginTop: 16, borderWidth: 1, borderColor: '#ff3b30' },
   deleteButtonText: { color: '#ff3b30', fontSize: 17, fontWeight: 'bold' },
+
+  // 🔥 Estilos nuevos para el Dashboard (Lista)
+  containerLista: { flex: 1, backgroundColor: '#000', paddingHorizontal: 20, paddingTop: 60 },
+  headerLista: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
+  btnVolver: { marginRight: 16, padding: 4, backgroundColor: '#1c1c1e', borderRadius: 20 },
+  tituloSeccion: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
+  btnPrincipalDashboard: { backgroundColor: '#ff3b30', padding: 18, borderRadius: 16, alignItems: 'center', marginBottom: 24, shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  btnTextoDashboard: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  tarjeta: { backgroundColor: '#1c1c1e', padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: '#2c2c2e' },
+  tarjetaTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  tarjetaEmoji: { fontSize: 32, marginRight: 12 },
+  tarjetaTitulo: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
+  tarjetaLugar: { color: '#8e8e93', fontSize: 14 },
+  tarjetaFecha: { color: '#ff3b30', fontSize: 13, fontWeight: '600', marginTop: 4, borderTopWidth: 1, borderTopColor: '#2c2c2e', paddingTop: 10 },
+  vacioContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
+  vacioTexto: { color: '#8e8e93', fontSize: 16, textAlign: 'center', marginTop: 16 },
 });
