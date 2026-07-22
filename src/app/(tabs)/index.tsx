@@ -57,15 +57,19 @@ export default function IndexScreen() {
   }, []);
 
   const fetchEventos = async () => {
-    const { data, error } = await supabase.from('eventos').select('*');
-    if (error) {
-      console.log('Error trayendo eventos:', error);
-    } else {
-      const eventosValidos = (data as Evento[]).filter((ev) => ev.latitud && ev.longitud);
-      setEventos(eventosValidos);
+    // 🔥 Calculamos la fecha límite (Hace 5 horas)
+    const limiteTiempo = new Date();
+    limiteTiempo.setHours(limiteTiempo.getHours() - 5);
+
+    const { data, error } = await supabase
+      .from('eventos')
+      .select('*')
+      .gte('fecha_hora', limiteTiempo.toISOString()); // Filtro inteligente
+
+    if (!error && data) {
+      setEventos(data);
     }
   };
-
   useFocusEffect(
     useCallback(() => {
       fetchEventos();
@@ -143,6 +147,7 @@ export default function IndexScreen() {
       >
         {eventos.map((ev, index) => (
           <Marker
+            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
             key={ev.id}
             coordinate={{ latitude: ev.latitud, longitude: ev.longitud }}
             onPress={(e) => {

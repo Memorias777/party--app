@@ -25,7 +25,6 @@ export default function FiestaDetailScreen() {
   const [evento, setEvento] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
   
-  // 🔥 CORRECCIÓN: Regresamos a 'avisos' en plural para que la base de datos nos deje pasar
   const [tabActual, setTabActual] = useState<'general' | 'avisos'>('general');
   
   const [userId, setUserId] = useState<string | null>(null);
@@ -97,8 +96,10 @@ export default function FiestaDetailScreen() {
 
     fetchMensajes();
 
+    const nombreCanal = `sala_fiesta_${id}_${Date.now()}`;
+
     const canalChat = supabase
-      .channel(`sala_fiesta_${id}`)
+      .channel(nombreCanal)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'mensajes', filter: `evento_id=eq.${id}` },
@@ -191,7 +192,6 @@ export default function FiestaDetailScreen() {
           {evento.emoji || '🥳'} {evento.titulo} ({asistentes} 👤)
         </Text>
         
-        {/* 🔥 EL ENGRANE MAGICO (Solo aparece si eres el creador) */}
         {evento.creador_id === userId ? (
           <TouchableOpacity 
             style={styles.closeIcon} 
@@ -204,11 +204,13 @@ export default function FiestaDetailScreen() {
         )}
       </View>
 
+      {/* 🔥 Todo vive dentro de este UNICO ScrollView ahora */}
       <ScrollView 
         ref={scrollViewRef}
         style={styles.body} 
         contentContainerStyle={{ paddingBottom: 20 }}
         scrollEventThrottle={16}
+        stickyHeaderIndices={esParticipante ? [1] : []} // <-- Hace que el hijo #1 se quede pegado
         onScroll={(event) => {
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
           const distanciaAlFondo = contentSize.height - layoutMeasurement.height - contentOffset.y;
@@ -220,6 +222,7 @@ export default function FiestaDetailScreen() {
           }
         }}
       >
+        {/* 🔥 HIJO 0: La tarjeta de información (se esconde al scrollear hacia abajo) */}
         <View style={styles.infoCard}>
           <Text style={styles.infoLugar}>📍 {evento.lugar}</Text>
           <Text style={styles.infoDetalles}>
@@ -229,6 +232,7 @@ export default function FiestaDetailScreen() {
           </Text>
         </View>
 
+        {/* 🔥 HIJO 1: El contenedor de unirse O los tabs (Esto es lo que se quedará fijo) */}
         {!esParticipante ? (
           <View style={styles.joinContainer}>
             <View style={styles.lockIconContainer}>
@@ -247,7 +251,7 @@ export default function FiestaDetailScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <>
+          <View style={styles.tabWrapper}>
             <View style={styles.tabContainer}>
               <TouchableOpacity 
                 style={[styles.tab, tabActual === 'general' && styles.tabActive]}
@@ -262,30 +266,33 @@ export default function FiestaDetailScreen() {
                 <Text style={[styles.tabText, tabActual === 'avisos' && styles.tabTextActive]}>📢 Avisos (Admin)</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        )}
 
-            <View style={styles.chatArea}>
-              {mensajes.length === 0 ? (
-                <View style={styles.chatPlaceholder}>
-                  <Ionicons name={tabActual === 'general' ? "chatbubbles-outline" : "megaphone-outline"} size={50} color="#3a3a3c" />
-                  <Text style={styles.placeholderText}>
-                    {tabActual === 'general' ? 'El chat está vacío.\n¡Rompe el hielo!' : 'Aún no hay avisos del administrador.'}
-                  </Text>
-                </View>
-              ) : (
-                mensajes.map((msg, index) => {
-                  const esMio = msg.perfil_id === userId;
-                  return (
-                    <View key={msg.id || index} style={[styles.burbujaContenedor, esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena]}>
-                      <View style={[styles.burbuja, esMio ? styles.burbujaMia : styles.burbujaAjena]}>
-                        <Text style={styles.mensajeTexto}>{msg.contenido}</Text>
-                      </View>
-                      <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
+        {/* 🔥 HIJO 2: Los Mensajes (Solo aparecen si eres participante) */}
+        {esParticipante && (
+          <View style={styles.chatArea}>
+            {mensajes.length === 0 ? (
+              <View style={styles.chatPlaceholder}>
+                <Ionicons name={tabActual === 'general' ? "chatbubbles-outline" : "megaphone-outline"} size={50} color="#3a3a3c" />
+                <Text style={styles.placeholderText}>
+                  {tabActual === 'general' ? 'El chat está vacío.\n¡Rompe el hielo!' : 'Aún no hay avisos del administrador.'}
+                </Text>
+              </View>
+            ) : (
+              mensajes.map((msg, index) => {
+                const esMio = msg.perfil_id === userId;
+                return (
+                  <View key={msg.id || index} style={[styles.burbujaContenedor, esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena]}>
+                    <View style={[styles.burbuja, esMio ? styles.burbujaMia : styles.burbujaAjena]}>
+                      <Text style={styles.mensajeTexto}>{msg.contenido}</Text>
                     </View>
-                  );
-                })
-              )}
-            </View>
-          </>
+                    <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
+                  </View>
+                );
+              })
+            )}
+          </View>
         )}
       </ScrollView>
 
@@ -331,7 +338,8 @@ const styles = StyleSheet.create({
   joinText: { color: '#8e8e93', fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 22 },
   joinButton: { backgroundColor: '#ff3b30', width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
   joinButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  tabContainer: { flexDirection: 'row', marginHorizontal: 16, backgroundColor: '#1c1c1e', borderRadius: 12, padding: 4, marginBottom: 16 },
+  tabWrapper: { backgroundColor: '#000', paddingBottom: 16, zIndex: 10 }, // 🔥 Nuevo contenedor protector para el efecto pegajoso
+  tabContainer: { flexDirection: 'row', marginHorizontal: 16, backgroundColor: '#1c1c1e', borderRadius: 12, padding: 4 }, // 🔥 Le quitamos el marginBottom para dárselo al wrapper
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
   tabActive: { backgroundColor: '#2c2c2e' },
   tabText: { color: '#8e8e93', fontSize: 14, fontWeight: '600' },
