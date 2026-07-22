@@ -10,6 +10,7 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: '#ff3b30',
         tabBarInactiveTintColor: '#8e8e93',
+        tabBarHideOnKeyboard: true, // 🔥 Oculta la barra cuando el teclado está abierto
         tabBarStyle: {
           backgroundColor: '#1c1c1e',
           borderTopColor: '#2c2c2e',
@@ -17,6 +18,7 @@ export default function TabLayout() {
           height: Platform.OS === 'ios' ? 88 : 64,
           paddingTop: 8,
           paddingBottom: Platform.OS === 'ios' ? 28 : 10,
+          display: Platform.OS === 'android' ? 'flex' : undefined, // 🔥 Evita bugs visuales en Android con el teclado
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -37,6 +39,7 @@ export default function TabLayout() {
         name="crear"
         options={{
           title: 'Crear',
+          href: null, // 🔥 Oculta la pestaña de la barra inferior (pero sigue navegable)
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="add-circle" size={size} color={color} />
           ),
@@ -64,6 +67,7 @@ export default function TabLayout() {
         name="perfil"
         options={{
           title: 'Perfil',
+          href: null, // 🔥 Oculta la pestaña de la barra inferior (pero sigue navegable)
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person" size={size} color={color} />
           ),
