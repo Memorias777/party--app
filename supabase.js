@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// 1. Pega tu URL aquí (asegúrate de dejar las comillas simples)
-const supabaseUrl = 'https://aljiwhkypmyqsyytqhxt.supabase.co'; 
+// 1. Jalamos la URL desde la configuración segura
+const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL; 
 
-// 2. Pega tu Publishable Key aquí (asegúrate de dejar las comillas simples)
-const supabaseAnonKey = 'sb_publishable_wOPVfmBpKJYjDk6CetaMOw_O5O-adKl';
+// 2. Jalamos la llave desde la configuración segura
+const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
 // Esta es la parte que "exporta" la conexión para que tu app la use
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
