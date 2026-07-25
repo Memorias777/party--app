@@ -1,3 +1,4 @@
+import 'react-native-url-polyfill/auto'; // <- ESTA ES LA LÍNEA MÁGICA
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -6,6 +7,8 @@ const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 
 // 2. Jalamos la llave desde la configuración segura
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+
+// ... resto de tu código
 
 // Esta es la parte que "exporta" la conexión para que tu app la use
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
