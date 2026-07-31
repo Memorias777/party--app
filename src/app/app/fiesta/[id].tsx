@@ -12,7 +12,7 @@ import {
   Linking,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { supabase } from '../../../supabase';
+import { supabase } from '../../supabase.js';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '../../components/Toast';
 import ConfirmModal from '../../components/ConfirmModal';
