@@ -28,45 +28,36 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Mapa',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="crear"
-        options={{
-          title: 'Crear',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="map" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="chats"
         options={{
           title: 'Fiestas',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubbles" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubbles" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
         name="historial"
         options={{
           title: 'Historial',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="time" size={size} color={color} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="time" size={size} color={color} />,
         }}
       />
-      {/* 🔥 Perfil ya NO aparece como botón en la barra de abajo.
-          Sigue existiendo como pantalla (se navega por código desde el
-          ícono de perfil en el mapa), pero href:null la esconde de la barra. */}
       <Tabs.Screen
         name="perfil"
         options={{
           title: 'Perfil',
+          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
+        }}
+      />
+      {/* 🔥 "Crear" ya no aparece como botón en la barra.
+          Sigue existiendo como pantalla, pero solo se llega a ella
+          desde el botón "Mis Fiestas" dentro de Perfil. */}
+      <Tabs.Screen
+        name="crear"
+        options={{
           href: null,
         }}
       />

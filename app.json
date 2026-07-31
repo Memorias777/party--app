@@ -1,55 +1,42 @@
 {
-  "expo": {
-    "name": "party!",
-    "slug": "zacatecas-party-app", 
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "zacatecaspartyapp",
-    "userInterfaceStyle": "automatic",
-    "ios": {
-      "icon": "./assets/images/icon.png"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/icon.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+  "cli": {
+    "version": ">= 21.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
       },
-      "predictiveBackGestureEnabled": false,
-      "package": "com.memorias777.zacatecaspartyapp",
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyDTH_D67NP4OTNQ_7YGlWmV92rkuWKDwcc"
-        }
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aljiwhkypmyqsyytqhxt.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_wOPVfmBpKJYjDk6CetaMOw_O5O-adKl"
       }
     },
-    "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aljiwhkypmyqsyytqhxt.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_wOPVfmBpKJYjDk6CetaMOw_O5O-adKl"
+      }
     },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
-        }
-      ],
-      "expo-font"
-    ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": false
-    },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "29633157-dbb6-4035-b499-b49a119c9016"
+    "production": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://aljiwhkypmyqsyytqhxt.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_wOPVfmBpKJYjDk6CetaMOw_O5O-adKl"
       }
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

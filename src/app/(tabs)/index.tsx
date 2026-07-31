@@ -8,6 +8,7 @@ import {
   Animated,
   Dimensions,
   Modal,
+  Platform,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useFocusEffect, router } from 'expo-router';
@@ -176,26 +177,24 @@ export default function IndexScreen() {
         onPress={closeCard}
       >
         {eventosFiltrados.map((ev, index) => (
-          <Marker
-            // 🔥 hitSlop ampliado: ahora puedes tocar bastante más lejos
-            // del pin exacto y aun así lo selecciona
-            hitSlop={{ top: 35, bottom: 35, left: 35, right: 35 }}
-            key={ev.id}
-            coordinate={{ latitude: ev.latitud, longitude: ev.longitud }}
-            onPress={(e) => {
-              e.stopPropagation();
-              openCard(ev);
-            }}
-            // Área táctil real más grande alrededor del ícono visual
-            tracksViewChanges={false}
-          >
-            <View style={styles.markerHitArea}>
-              <View style={styles.markerContainer}>
-                <Text style={styles.markerEmoji}>{getEmoji(ev, index)}</Text>
-              </View>
-            </View>
-          </Marker>
-        ))}
+  <Marker
+    hitSlop={{ top: 35, bottom: 35, left: 35, right: 35 }}
+    key={ev.id}
+    coordinate={{ latitude: Number(ev.latitud), longitude: Number(ev.longitud) }}
+    onPress={(e) => {
+      e.stopPropagation();
+      openCard(ev);
+    }}
+    anchor={{ x: 0.5, y: 1 }}
+  >
+    <View style={styles.markerWrapper}>
+      <View style={styles.markerContainer}>
+        <Text style={styles.markerEmoji}>{getEmoji(ev, index)}</Text>
+      </View>
+      <View style={styles.markerColita} />
+    </View>
+  </Marker>
+))}
       </MapView>
 
       <TouchableOpacity
@@ -450,26 +449,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  markerContainer: {
-    width: 30,
-    height: 30,
-    borderTopLeftRadius: 18.25,
-    borderTopRightRadius: 18.25,
-    borderBottomLeftRadius: 18.25,
-    borderBottomRightRadius: 0,
-    backgroundColor: '#fff',
-    borderWidth: 3.5,
-    borderColor: '#ff3b30',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transform: [{ rotate: '45deg' }],
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 6,
-  },
-  markerEmoji: { fontSize: 16, transform: [{ rotate: '-45deg' }], textAlign: 'center' },
+  markerWrapper: {
+  alignItems: 'center',
+  justifyContent: 'flex-end',
+},
+markerContainer: {
+  width: 30,
+  height: 30,
+  borderRadius: 17,
+  backgroundColor: '#fff',
+  borderWidth: 3,
+  borderColor: '#ff3b30',
+  alignItems: 'center',
+  justifyContent: 'center',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 3 },
+  shadowOpacity: 0.3,
+  shadowRadius: 3,
+  elevation: 6,
+},
+markerEmoji: {
+  fontSize: 16,
+  textAlign: 'center',
+},
+markerColita: {
+  width: 0,
+  height: 0,
+  borderLeftWidth: 5,
+  borderRightWidth: 5,
+  borderTopWidth: 7,
+  borderLeftColor: 'transparent',
+  borderRightColor: 'transparent',
+  borderTopColor: '#ff3b30',
+  marginTop: -1,
+},
 
   detailCard: {
     position: 'absolute',
