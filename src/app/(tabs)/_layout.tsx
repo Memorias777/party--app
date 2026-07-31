@@ -60,13 +60,14 @@ export default function TabLayout() {
           ),
         }}
       />
+      {/* 🔥 Perfil ya NO aparece como botón en la barra de abajo.
+          Sigue existiendo como pantalla (se navega por código desde el
+          ícono de perfil en el mapa), pero href:null la esconde de la barra. */}
       <Tabs.Screen
         name="perfil"
         options={{
           title: 'Perfil',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
-          ),
+          href: null,
         }}
       />
     </Tabs>

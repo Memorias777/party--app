@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,16 +7,17 @@ import {
   TouchableOpacity,
   Switch,
   ScrollView,
-  Alert,
   Platform,
   ActivityIndicator,
   FlatList,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import MapView, { Marker } from 'react-native-maps';
-import { supabase } from '../../../supabase.js';
+import { supabase } from '../../../supabase';
 import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useToast } from '../../components/Toast';
+import ConfirmModal from '../../components/ConfirmModal';
 
 const TIPOS_FIESTA = [
   { label: 'Antro', emoji: '🪩' },
@@ -24,147 +25,299 @@ const TIPOS_FIESTA = [
   { label: 'Norteño', emoji: '🌵' },
 ];
 
+const FORM_VACIO = {
+  titulo: '',
+  lugar: '',
+  tipoSeleccionado: TIPOS_FIESTA[0],
+  coordenadas: { latitud: 22.7709, longitud: -102.5832 },
+  fechaHora: new Date(),
+  tieneCover: false,
+  esPorEtapas: false,
+  precioUnico: '',
+  etapas: [{ precio: '', fechas: '' }],
+  esByob: false,
+  soloMayores: false,
+};
+
+// -----------------------------------------------------------------------
+// PANTALLA PRINCIPAL: decide si mostramos la LISTA o el FORMULARIO
+// -----------------------------------------------------------------------
 export default function CrearScreen() {
-  // Parámetro de URL (por si venimos del engrane del chat)
   const { id } = useLocalSearchParams<{ id?: string }>();
-  
-  // 🔥 ESTADO DEL DASHBOARD
-  const [vista, setVista] = useState<'lista' | 'formulario'>('lista');
-  const [misFiestas, setMisFiestas] = useState<any[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [cargandoDatos, setCargandoDatos] = useState(true);
 
-  // 🔥 ESTADO DEL FORMULARIO ORIGINAL
-  const [eventoEditandoId, setEventoEditandoId] = useState<string | null>(null);
-  const esEdicion = !!eventoEditandoId;
+  // vista: 'lista' | 'formulario'
+  // Si llegamos con un id en la URL (desde el engranaje del chat), vamos
+  // directo al formulario en modo edición. Si no, siempre mostramos la lista.
+  const [vista, setVista] = useState<'lista' | 'formulario'>(id ? 'formulario' : 'lista');
+  const [idEdicion, setIdEdicion] = useState<string | null>(id ?? null);
 
-  const [titulo, setTitulo] = useState('');
-  const [lugar, setLugar] = useState('');
-  const [tipoSeleccionado, setTipoSeleccionado] = useState(TIPOS_FIESTA[0]);
-  const [coordenadas, setCoordenadas] = useState({ latitud: 22.7709, longitud: -102.5832 });
-  
-  const [fechaHora, setFechaHora] = useState(new Date());
-  const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
-  const [mostrarPicker, setMostrarPicker] = useState(false);
-
-  const [tieneCover, setTieneCover] = useState(false);
-  const [esPorEtapas, setEsPorEtapas] = useState(false);
-  const [precioUnico, setPrecioUnico] = useState('');
-  const [etapas, setEtapas] = useState([{ precio: '', fechas: '' }]);
-
-  const [esByob, setEsByob] = useState(false);
-  const [soloMayores, setSoloMayores] = useState(false);
-  const [publicando, setPublicando] = useState(false);
-  const [eliminando, setEliminando] = useState(false);
-
-  // 1. Cargar datos iniciales al entrar a la pantalla
+  // Cada vez que esta pestaña recibe foco SIN un id en la URL, forzamos
+  // la vista de lista y limpiamos cualquier id de edición que hubiera
+  // quedado pegado. Esto es lo que arregla el bug de "edito una fiesta,
+  // luego quiero crear otra y se guarda sobre la que edité".
   useFocusEffect(
     useCallback(() => {
-      const inicializarPantalla = async () => {
-        setCargandoDatos(true);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          Alert.alert('Acceso Denegado', 'Necesitas iniciar sesión.');
-          router.replace('/login');
-          return;
-        }
-        setUserId(user.id);
-        
-        // Cargamos la lista de fiestas para el dashboard
-        await cargarListaFiestas(user.id);
-
-        // Si entramos con un ID desde otra pantalla, abrimos el formulario en modo edición
-        if (id) {
-          await cargarFiestaParaEditar(id, user.id);
-        } else {
-          setVista('lista');
-        }
-        setCargandoDatos(false);
-      };
-
-      inicializarPantalla();
+      if (!id) {
+        setVista('lista');
+        setIdEdicion(null);
+      } else {
+        setVista('formulario');
+        setIdEdicion(id);
+      }
     }, [id])
   );
 
-  const cargarListaFiestas = async (uid: string) => {
-    const { data } = await supabase
+  const irACrearNueva = () => {
+    setIdEdicion(null);
+    setVista('formulario');
+  };
+
+  const irAEditar = (eventoId: string) => {
+    setIdEdicion(eventoId);
+    setVista('formulario');
+  };
+
+  const volverALista = () => {
+    // Limpiamos también el parámetro de la URL para que no quede pegado
+    router.setParams({ id: undefined });
+    setIdEdicion(null);
+    setVista('lista');
+  };
+
+  if (vista === 'formulario') {
+    return <FormularioFiesta idEdicion={idEdicion} onVolver={volverALista} />;
+  }
+
+  return <ListaFiestas onCrearNueva={irACrearNueva} onEditar={irAEditar} />;
+}
+
+// -----------------------------------------------------------------------
+// VISTA 1: LISTA DE TUS FIESTAS
+// -----------------------------------------------------------------------
+function ListaFiestas({
+  onCrearNueva,
+  onEditar,
+}: {
+  onCrearNueva: () => void;
+  onEditar: (id: string) => void;
+}) {
+  const [fiestas, setFiestas] = useState<any[]>([]);
+  const [cargando, setCargando] = useState(true);
+
+  const cargarFiestas = useCallback(async () => {
+    setCargando(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      router.replace('/login');
+      return;
+    }
+
+    const { data, error } = await supabase
       .from('eventos')
       .select('*')
-      .eq('creador_id', uid)
+      .eq('creador_id', user.id)
       .order('fecha_hora', { ascending: false });
-    
-    setMisFiestas(data || []);
+
+    if (!error && data) {
+      setFiestas(data);
+    }
+    setCargando(false);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargarFiestas();
+    }, [cargarFiestas])
+  );
+
+  const formatFecha = (fechaISO: string) => {
+    try {
+      const fecha = new Date(fechaISO);
+      return fecha.toLocaleString('es-MX', {
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+      });
+    } catch {
+      return fechaISO;
+    }
   };
 
-  const limpiarFormulario = () => {
-    setEventoEditandoId(null);
-    setTitulo('');
-    setLugar('');
-    setTipoSeleccionado(TIPOS_FIESTA[0]);
-    setCoordenadas({ latitud: 22.7709, longitud: -102.5832 });
-    setFechaHora(new Date());
-    setTieneCover(false);
-    setEsPorEtapas(false);
-    setPrecioUnico('');
-    setEtapas([{ precio: '', fechas: '' }]);
-    setEsByob(false);
-    setSoloMayores(false);
-  };
+  const esPasada = (fechaISO: string) => new Date(fechaISO).getTime() < Date.now();
 
-  const prepararNuevaFiesta = () => {
-    limpiarFormulario();
-    setVista('formulario');
-    router.setParams({ id: '' }); // Limpiamos la URL
-  };
+  return (
+    <View style={styles.container}>
+      <View style={styles.listHeaderWrap}>
+        <Text style={styles.header}>Tus Fiestas 🎉</Text>
+        <Text style={styles.subheader}>Crea una nueva o edita las que ya tienes</Text>
+      </View>
 
-  const cargarFiestaParaEditar = async (fiestaId: string, uid?: string) => {
-    setCargandoDatos(true);
-    const { data, error } = await supabase.from('eventos').select('*').eq('id', fiestaId).single();
+      <TouchableOpacity style={styles.crearNuevaButton} activeOpacity={0.85} onPress={onCrearNueva}>
+        <Ionicons name="add-circle" size={22} color="#fff" style={{ marginRight: 8 }} />
+        <Text style={styles.crearNuevaButtonText}>Crear nueva fiesta</Text>
+      </TouchableOpacity>
 
-    if (error || !data) {
-      Alert.alert('Error', 'No se pudo cargar la fiesta para editar.');
-      setVista('lista');
-    } else {
-      if (uid && data.creador_id !== uid) {
-        Alert.alert('Acceso Denegado', 'Solo el creador puede editar esta fiesta.');
-        setVista('lista');
-        setCargandoDatos(false);
+      {cargando ? (
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color="#ff3b30" />
+        </View>
+      ) : fiestas.length === 0 ? (
+        <View style={styles.centerContent}>
+          <Text style={styles.emptyEmoji}>🎪</Text>
+          <Text style={styles.emptyText}>Aún no has creado ninguna fiesta</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={fiestas}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.fiestaCard}
+              activeOpacity={0.75}
+              onPress={() => onEditar(item.id)}
+            >
+              <View style={styles.fiestaAvatar}>
+                <Text style={{ fontSize: 24 }}>{item.emoji || '🥳'}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fiestaTitle} numberOfLines={1}>{item.titulo}</Text>
+                <Text style={styles.fiestaSubtitle} numberOfLines={1}>
+                  📍 {item.lugar} · {formatFecha(item.fecha_hora)}
+                </Text>
+                {esPasada(item.fecha_hora) && (
+                  <View style={styles.badgePasada}>
+                    <Text style={styles.badgePasadaText}>Finalizada</Text>
+                  </View>
+                )}
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#636366" />
+            </TouchableOpacity>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+// -----------------------------------------------------------------------
+// VISTA 2: FORMULARIO (crear o editar, según idEdicion)
+// -----------------------------------------------------------------------
+function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; onVolver: () => void }) {
+  const esEdicion = !!idEdicion;
+  const { showToast } = useToast();
+
+  const [userId, setUserId] = useState<string | null>(null);
+  const [cargandoDatos, setCargandoDatos] = useState(esEdicion);
+
+  const [titulo, setTitulo] = useState(FORM_VACIO.titulo);
+  const [lugar, setLugar] = useState(FORM_VACIO.lugar);
+  const [tipoSeleccionado, setTipoSeleccionado] = useState(FORM_VACIO.tipoSeleccionado);
+  const [coordenadas, setCoordenadas] = useState(FORM_VACIO.coordenadas);
+  const [fechaHora, setFechaHora] = useState(new Date());
+  const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+  const [mostrarPicker, setMostrarPicker] = useState(false);
+  const [tieneCover, setTieneCover] = useState(FORM_VACIO.tieneCover);
+  const [esPorEtapas, setEsPorEtapas] = useState(FORM_VACIO.esPorEtapas);
+  const [precioUnico, setPrecioUnico] = useState(FORM_VACIO.precioUnico);
+  const [etapas, setEtapas] = useState(FORM_VACIO.etapas);
+  const [esByob, setEsByob] = useState(FORM_VACIO.esByob);
+  const [soloMayores, setSoloMayores] = useState(FORM_VACIO.soloMayores);
+  const [publicando, setPublicando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
+  const [modalEliminar, setModalEliminar] = useState(false);
+
+  // Cada vez que cambia idEdicion (o al montar), reseteamos TODO el formulario
+  // antes de, en su caso, rellenarlo con los datos de la fiesta a editar.
+  // Esto evita que datos de una edición anterior queden pegados.
+  useEffect(() => {
+    let cancelado = false;
+
+    const resetFormulario = () => {
+      setTitulo(FORM_VACIO.titulo);
+      setLugar(FORM_VACIO.lugar);
+      setTipoSeleccionado(FORM_VACIO.tipoSeleccionado);
+      setCoordenadas(FORM_VACIO.coordenadas);
+      setFechaHora(new Date());
+      setTieneCover(FORM_VACIO.tieneCover);
+      setEsPorEtapas(FORM_VACIO.esPorEtapas);
+      setPrecioUnico(FORM_VACIO.precioUnico);
+      setEtapas([{ precio: '', fechas: '' }]);
+      setEsByob(FORM_VACIO.esByob);
+      setSoloMayores(FORM_VACIO.soloMayores);
+    };
+
+    const inicializar = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace('/login');
         return;
       }
+      if (cancelado) return;
+      setUserId(user.id);
 
-      setEventoEditandoId(data.id);
-      setTitulo(data.titulo);
-      setLugar(data.lugar);
-      setCoordenadas({ latitud: data.latitud, longitud: data.longitud });
-      setFechaHora(new Date(data.fecha_hora));
-      setTieneCover(data.tiene_cover);
-      setEsByob(data.es_byob);
-      setSoloMayores(data.solo_mayores);
-      
-      const tipoObj = TIPOS_FIESTA.find(t => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
-      setTipoSeleccionado(tipoObj);
+      resetFormulario();
 
-      if (data.tiene_cover && data.info_cover) {
-        try {
-          const coverParseado = JSON.parse(data.info_cover);
-          if (Array.isArray(coverParseado)) {
-            setEsPorEtapas(true);
-            setEtapas(coverParseado);
-          } else {
+      if (esEdicion && idEdicion) {
+        setCargandoDatos(true);
+        const { data, error } = await supabase
+          .from('eventos')
+          .select('*')
+          .eq('id', idEdicion)
+          .single();
+
+        if (cancelado) return;
+
+        if (error || !data) {
+          showToast('No se pudo cargar la fiesta.', 'error');
+          onVolver();
+          return;
+        }
+
+        if (data.creador_id !== user.id) {
+          showToast('Solo el creador puede editar esta fiesta.', 'error');
+          onVolver();
+          return;
+        }
+
+        setTitulo(data.titulo ?? '');
+        setLugar(data.lugar ?? '');
+        setCoordenadas({ latitud: data.latitud, longitud: data.longitud });
+        setFechaHora(new Date(data.fecha_hora));
+        setTieneCover(!!data.tiene_cover);
+        setEsByob(!!data.es_byob);
+        setSoloMayores(!!data.solo_mayores);
+
+        const tipoObj = TIPOS_FIESTA.find((t) => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
+        setTipoSeleccionado(tipoObj);
+
+        if (data.tiene_cover && data.info_cover) {
+          try {
+            const coverParseado = JSON.parse(data.info_cover);
+            if (Array.isArray(coverParseado)) {
+              setEsPorEtapas(true);
+              setEtapas(coverParseado);
+            } else {
+              setEsPorEtapas(false);
+              setPrecioUnico(data.info_cover);
+            }
+          } catch (e) {
             setEsPorEtapas(false);
             setPrecioUnico(data.info_cover);
           }
-        } catch (e) {
-          setEsPorEtapas(false);
-          setPrecioUnico(data.info_cover);
         }
+        setCargandoDatos(false);
+      } else {
+        setCargandoDatos(false);
       }
-      setVista('formulario');
-    }
-    setCargandoDatos(false);
-  };
+    };
 
-  // Funciones del Formulario Original
+    inicializar();
+
+    return () => {
+      cancelado = true;
+    };
+  }, [idEdicion, esEdicion]);
+
   const onChangeFecha = (event: any, selectedDate?: Date) => {
     setMostrarPicker(Platform.OS === 'ios');
     if (selectedDate) setFechaHora(selectedDate);
@@ -177,38 +330,32 @@ export default function CrearScreen() {
 
   const agregarEtapa = () => {
     if (etapas.length < 5) setEtapas([...etapas, { precio: '', fechas: '' }]);
-    else Alert.alert('Límite alcanzado', 'Solo puedes agregar 5 etapas máximo.');
+    else showToast('Solo puedes agregar 5 etapas máximo.', 'info');
   };
 
   const actualizarEtapa = (index: number, campo: 'precio' | 'fechas', valor: string) => {
     const nuevasEtapas = [...etapas];
-    nuevasEtapas[index][campo] = valor;
+    nuevasEtapas[index] = { ...nuevasEtapas[index], [campo]: valor };
     setEtapas(nuevasEtapas);
   };
 
-  // 2. Guardar Cambios (Update) o Crear Nueva (Insert)
   const guardarFiesta = async () => {
     if (!titulo.trim() || !lugar.trim()) {
-      Alert.alert('Falta información', 'Por favor completa el título y el lugar.');
+      showToast('Completa el título y el lugar.', 'error');
       return;
     }
-
     if (tieneCover && !esPorEtapas && !precioUnico.trim()) {
-      Alert.alert('Falta el Cover', 'Indicaste que hay cover, por favor ingresa el precio total.');
+      showToast('Indicaste que hay cover, agrega el precio.', 'error');
       return;
     }
 
     setPublicando(true);
 
-    const infoCover = tieneCover
-      ? esPorEtapas
-        ? JSON.stringify(etapas)
-        : precioUnico
-      : 'Sin Cover';
+    const infoCover = tieneCover ? (esPorEtapas ? JSON.stringify(etapas) : precioUnico) : 'Sin Cover';
 
     const payloadEvento = {
-      titulo,
-      lugar,
+      titulo: titulo.trim(),
+      lugar: lugar.trim(),
       latitud: coordenadas.latitud,
       longitud: coordenadas.longitud,
       fecha_hora: fechaHora.toISOString(),
@@ -222,225 +369,254 @@ export default function CrearScreen() {
 
     let errorDB = null;
 
-    if (esEdicion) {
-      const { error } = await supabase.from('eventos').update(payloadEvento).eq('id', eventoEditandoId);
+    // 🔥 Usamos el idEdicion recibido por props (NO un id de params que
+    // pudiera haber quedado obsoleto), así siempre editamos/creamos lo correcto.
+    if (esEdicion && idEdicion) {
+      const { error } = await supabase.from('eventos').update(payloadEvento).eq('id', idEdicion);
       errorDB = error;
     } else {
-      const { error } = await supabase.from('eventos').insert([{ ...payloadEvento, creador_id: userId }]);
+      const { error } = await supabase
+        .from('eventos')
+        .insert([{ ...payloadEvento, creador_id: userId }]);
       errorDB = error;
     }
 
     setPublicando(false);
 
     if (errorDB) {
-      Alert.alert('Error', errorDB.message);
+      showToast('No se pudo guardar', 'error', errorDB.message);
     } else {
-      Alert.alert('¡Éxito!', esEdicion ? 'Fiesta actualizada correctamente. 🛠️' : '¡Fiesta Creada! 🎉');
-      router.setParams({ id: '' });
-      if (userId) await cargarListaFiestas(userId);
-      setVista('lista');
+      showToast(esEdicion ? 'Fiesta actualizada 🛠️' : '¡Fiesta creada! 🎉', 'success');
+      onVolver();
+      router.push('/(tabs)');
     }
   };
 
-  // 3. El Botón del Pánico (Eliminar Fiesta)
-  const eliminarFiesta = () => {
-    Alert.alert(
-      "Eliminar Fiesta",
-      "¿Estás totalmente seguro? Esto borrará el evento, los asistentes y todos los mensajes del chat para siempre.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { 
-          text: "Sí, Eliminar", 
-          style: "destructive",
-          onPress: async () => {
-            setEliminando(true);
-            const { error } = await supabase.from('eventos').delete().eq('id', eventoEditandoId);
-            setEliminando(false);
+  const confirmarEliminar = () => setModalEliminar(true);
 
-            if (error) {
-              Alert.alert('Error', 'No se pudo eliminar la fiesta.');
-            } else {
-              Alert.alert('Eliminada', 'La fiesta fue borrada del mapa.');
-              router.setParams({ id: '' });
-              if (userId) await cargarListaFiestas(userId);
-              setVista('lista');
-            }
-          }
-        }
-      ]
-    );
+  const eliminarFiestaConfirmado = async () => {
+    if (!idEdicion) return;
+    setModalEliminar(false);
+    setEliminando(true);
+    const { error } = await supabase.from('eventos').delete().eq('id', idEdicion);
+    setEliminando(false);
+
+    if (error) {
+      showToast('No se pudo eliminar la fiesta.', 'error');
+    } else {
+      showToast('Fiesta eliminada del mapa', 'success');
+      onVolver();
+    }
   };
 
   if (cargandoDatos) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View style={[styles.container, styles.centerContent]}>
         <ActivityIndicator size="large" color="#ff3b30" />
       </View>
     );
   }
 
-  // 🔥 VISTA DASHBOARD (Mis Fiestas)
-  if (vista === 'lista') {
-    return (
-      <View style={styles.containerLista}>
-        <View style={styles.headerLista}>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/perfil')} style={styles.btnVolver}>
-            <Ionicons name="arrow-back" size={28} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.tituloSeccion}>Mis Fiestas</Text>
-        </View>
-
-        <TouchableOpacity style={styles.btnPrincipalDashboard} onPress={prepararNuevaFiesta} activeOpacity={0.8}>
-          <Text style={styles.btnTextoDashboard}>🎉 Crear Nueva Fiesta</Text>
+  return (
+    <View style={styles.container}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.content}>
+        <TouchableOpacity onPress={onVolver} style={styles.backRow} activeOpacity={0.7}>
+          <Ionicons name="chevron-back" size={20} color="#ff3b30" />
+          <Text style={styles.backRowText}>Tus fiestas</Text>
         </TouchableOpacity>
 
-        <FlatList
-          data={misFiestas}
-          keyExtractor={item => item.id.toString()}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.tarjeta} onPress={() => cargarFiestaParaEditar(item.id)} activeOpacity={0.7}>
-              <View style={styles.tarjetaTop}>
-                <Text style={styles.tarjetaEmoji}>{item.emoji || '🥳'}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.tarjetaTitulo}>{item.titulo}</Text>
-                  <Text style={styles.tarjetaLugar}>📍 {item.lugar}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={24} color="#8e8e93" />
-              </View>
-              <Text style={styles.tarjetaFecha}>
-                🗓️ {new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+        <Text style={styles.header}>{esEdicion ? 'Editar Fiesta 🛠️' : 'Crear Fiesta 🎉'}</Text>
+        <Text style={styles.subheader}>
+          {esEdicion ? 'Modifica los detalles del evento' : 'Configura los detalles del evento'}
+        </Text>
+
+        <Text style={styles.label}>Título de la fiesta</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Ej. Noche de Rock"
+          placeholderTextColor="#8e8e93"
+          value={titulo}
+          onChangeText={setTitulo}
+        />
+
+        <Text style={styles.label}>Tipo de Evento</Text>
+        <View style={styles.tiposRow}>
+          {TIPOS_FIESTA.map((tipo) => (
+            <TouchableOpacity
+              key={tipo.label}
+              style={[styles.tipoBoton, tipoSeleccionado.label === tipo.label && styles.tipoBotonActivo]}
+              onPress={() => setTipoSeleccionado(tipo)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.tipoTextoEmoji}>{tipo.emoji}</Text>
+              <Text style={[styles.tipoTexto, tipoSeleccionado.label === tipo.label && styles.tipoTextoActivo]}>
+                {tipo.label}
               </Text>
             </TouchableOpacity>
-          )}
-          ListEmptyComponent={
-            <View style={styles.vacioContainer}>
-              <Ionicons name="sad-outline" size={64} color="#3a3a3c" />
-              <Text style={styles.vacioTexto}>No has creado ninguna fiesta aún.</Text>
-            </View>
-          }
-        />
-      </View>
-    );
-  }
-
-  // 🔥 VISTA FORMULARIO (Tu código original)
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Botón para regresar al Dashboard */}
-      <TouchableOpacity 
-        style={{ marginBottom: 20, flexDirection: 'row', alignItems: 'center' }} 
-        onPress={() => {
-          router.setParams({ id: '' });
-          setVista('lista');
-        }}
-      >
-        <Ionicons name="arrow-back" size={24} color="#ff3b30" />
-        <Text style={{ color: '#ff3b30', fontSize: 16, fontWeight: '600', marginLeft: 8 }}>Volver a mis fiestas</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.header}>{esEdicion ? 'Editar Fiesta 🛠️' : 'Crear Fiesta 🎉'}</Text>
-      <Text style={styles.subheader}>{esEdicion ? 'Modifica los detalles del evento' : 'Configura los detalles del evento'}</Text>
-
-      <Text style={styles.label}>Título de la fiesta</Text>
-      <TextInput style={styles.input} placeholder="Ej. Noche de Rock" placeholderTextColor="#8e8e93" value={titulo} onChangeText={setTitulo} />
-
-      <Text style={styles.label}>Tipo de Evento</Text>
-      <View style={styles.tiposRow}>
-        {TIPOS_FIESTA.map((tipo) => (
-          <TouchableOpacity key={tipo.label} style={[styles.tipoBoton, tipoSeleccionado.label === tipo.label && styles.tipoBotonActivo]} onPress={() => setTipoSeleccionado(tipo)} activeOpacity={0.7}>
-            <Text style={styles.tipoTextoEmoji}>{tipo.emoji}</Text>
-            <Text style={[styles.tipoTexto, tipoSeleccionado.label === tipo.label && styles.tipoTextoActivo]}>{tipo.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <Text style={styles.label}>Ubicación</Text>
-      <TextInput style={styles.input} placeholder="Nombre del lugar (Ej. Plaza de Armas)" placeholderTextColor="#8e8e93" value={lugar} onChangeText={setLugar} />
-      <Text style={styles.hintText}>Toca el mapa para fijar el punto exacto:</Text>
-      <View style={styles.mapContainer}>
-        <MapView style={styles.miniMap} initialRegion={{ latitude: coordenadas.latitud, longitude: coordenadas.longitud, latitudeDelta: 0.02, longitudeDelta: 0.02 }} onPress={(e) => setCoordenadas({ latitud: e.nativeEvent.coordinate.latitude, longitud: e.nativeEvent.coordinate.longitude })}>
-          <Marker coordinate={{ latitude: coordenadas.latitud, longitude: coordenadas.longitud }} />
-        </MapView>
-      </View>
-
-      <Text style={styles.label}>Fecha y Hora</Text>
-      <View style={styles.fechasRow}>
-        <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('date')}>
-          <Text style={styles.dateButtonText}>🗓️ {fechaHora.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('time')}>
-          <Text style={styles.dateButtonText}>⏰ {fechaHora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</Text>
-        </TouchableOpacity>
-      </View>
-
-      {mostrarPicker && (
-        <DateTimePicker value={fechaHora} mode={pickerMode} display={Platform.OS === 'ios' ? 'spinner' : 'default'} onChange={onChangeFecha} themeVariant="dark" />
-      )}
-
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>💵 Tiene Cover</Text>
-        <Switch value={tieneCover} onValueChange={setTieneCover} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
-      </View>
-
-      {tieneCover && (
-        <View style={styles.coverPanel}>
-          <View style={styles.switchRowCover}>
-            <Text style={styles.switchLabel}>¿Venta por Etapas?</Text>
-            <Switch value={esPorEtapas} onValueChange={setEsPorEtapas} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
-          </View>
-          {!esPorEtapas ? (
-            <View style={{ marginTop: 10 }}>
-              <TextInput style={styles.input} placeholder="Precio total (Ej. 150)" placeholderTextColor="#8e8e93" keyboardType="numeric" value={precioUnico} onChangeText={setPrecioUnico} />
-            </View>
-          ) : (
-            <View style={{ marginTop: 10 }}>
-              {etapas.map((etapa, index) => (
-                <View key={index} style={styles.etapaCard}>
-                  <Text style={styles.etapaTitle}>Etapa {index + 1}</Text>
-                  <TextInput style={styles.inputPequeño} placeholder="Costo (Ej. 100)" placeholderTextColor="#8e8e93" value={etapa.precio} onChangeText={(text) => actualizarEtapa(index, 'precio', text)} />
-                  <TextInput style={[styles.inputPequeño, { marginTop: 8 }]} placeholder="Límite (Ej. Hasta 15 de Oct)" placeholderTextColor="#8e8e93" value={etapa.fechas} onChangeText={(text) => actualizarEtapa(index, 'fechas', text)} />
-                </View>
-              ))}
-              {etapas.length < 5 && (
-                <TouchableOpacity style={styles.addEtapaButton} onPress={agregarEtapa}>
-                  <Text style={styles.addEtapaText}>+ Agregar Etapa</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+          ))}
         </View>
-      )}
 
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>🍺 BYOB (Trae tu bebida)</Text>
-        <Switch value={esByob} onValueChange={setEsByob} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
-      </View>
+        <Text style={styles.label}>Ubicación</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Nombre del lugar (Ej. Plaza de Armas)"
+          placeholderTextColor="#8e8e93"
+          value={lugar}
+          onChangeText={setLugar}
+        />
+        <Text style={styles.hintText}>Toca el mapa para fijar el punto exacto:</Text>
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.miniMap}
+            initialRegion={{
+              latitude: coordenadas.latitud,
+              longitude: coordenadas.longitud,
+              latitudeDelta: 0.02,
+              longitudeDelta: 0.02,
+            }}
+            onPress={(e) =>
+              setCoordenadas({
+                latitud: e.nativeEvent.coordinate.latitude,
+                longitud: e.nativeEvent.coordinate.longitude,
+              })
+            }
+          >
+            <Marker coordinate={{ latitude: coordenadas.latitud, longitude: coordenadas.longitud }} />
+          </MapView>
+        </View>
 
-      <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>🔞 Solo +18</Text>
-        <Switch value={soloMayores} onValueChange={setSoloMayores} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
-      </View>
+        <Text style={styles.label}>Fecha y Hora</Text>
+        <View style={styles.fechasRow}>
+          <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('date')}>
+            <Text style={styles.dateButtonText}>
+              🗓️ {fechaHora.toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.dateButton} onPress={() => abrirPicker('time')}>
+            <Text style={styles.dateButtonText}>
+              ⏰ {fechaHora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      <TouchableOpacity style={[styles.publishButton, publicando && styles.publishButtonDisabled]} onPress={guardarFiesta} disabled={publicando} activeOpacity={0.85}>
-        <Text style={styles.publishButtonText}>{publicando ? 'Procesando...' : (esEdicion ? '🛠️ Guardar Cambios' : '🚀 Crear Fiesta')}</Text>
-      </TouchableOpacity>
+        {mostrarPicker && (
+          <DateTimePicker
+            value={fechaHora}
+            mode={pickerMode}
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={onChangeFecha}
+            themeVariant="dark"
+          />
+        )}
 
-      {esEdicion && (
-        <TouchableOpacity style={[styles.deleteButton, eliminando && styles.publishButtonDisabled]} onPress={eliminarFiesta} disabled={eliminando} activeOpacity={0.7}>
-          <Text style={styles.deleteButtonText}>{eliminando ? 'Eliminando...' : '🗑️ Eliminar Fiesta'}</Text>
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>💵 Tiene Cover</Text>
+          <Switch value={tieneCover} onValueChange={setTieneCover} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
+        </View>
+
+        {tieneCover && (
+          <View style={styles.coverPanel}>
+            <View style={styles.switchRowCover}>
+              <Text style={styles.switchLabel}>¿Venta por Etapas?</Text>
+              <Switch value={esPorEtapas} onValueChange={setEsPorEtapas} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
+            </View>
+            {!esPorEtapas ? (
+              <View style={{ marginTop: 10 }}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Precio total (Ej. 150)"
+                  placeholderTextColor="#8e8e93"
+                  keyboardType="numeric"
+                  value={precioUnico}
+                  onChangeText={setPrecioUnico}
+                />
+              </View>
+            ) : (
+              <View style={{ marginTop: 10 }}>
+                {etapas.map((etapa, index) => (
+                  <View key={index} style={styles.etapaCard}>
+                    <Text style={styles.etapaTitle}>Etapa {index + 1}</Text>
+                    <TextInput
+                      style={styles.inputPequeño}
+                      placeholder="Costo (Ej. 100)"
+                      placeholderTextColor="#8e8e93"
+                      value={etapa.precio}
+                      onChangeText={(text) => actualizarEtapa(index, 'precio', text)}
+                    />
+                    <TextInput
+                      style={[styles.inputPequeño, { marginTop: 8 }]}
+                      placeholder="Límite (Ej. Hasta 15 de Oct)"
+                      placeholderTextColor="#8e8e93"
+                      value={etapa.fechas}
+                      onChangeText={(text) => actualizarEtapa(index, 'fechas', text)}
+                    />
+                  </View>
+                ))}
+                {etapas.length < 5 && (
+                  <TouchableOpacity style={styles.addEtapaButton} onPress={agregarEtapa}>
+                    <Text style={styles.addEtapaText}>+ Agregar Etapa</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+        )}
+
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>🍺 BYOB (Trae tu bebida)</Text>
+          <Switch value={esByob} onValueChange={setEsByob} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
+        </View>
+
+        <View style={styles.switchRow}>
+          <Text style={styles.switchLabel}>🔞 Solo +18</Text>
+          <Switch value={soloMayores} onValueChange={setSoloMayores} trackColor={{ false: '#3a3a3c', true: '#ff3b30' }} thumbColor="#fff" />
+        </View>
+
+        <TouchableOpacity
+          style={[styles.publishButton, publicando && styles.publishButtonDisabled]}
+          onPress={guardarFiesta}
+          disabled={publicando}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.publishButtonText}>
+            {publicando ? 'Procesando...' : esEdicion ? '🛠️ Guardar Cambios' : '🚀 Crear Fiesta'}
+          </Text>
         </TouchableOpacity>
-      )}
-    </ScrollView>
+
+        {esEdicion && (
+          <TouchableOpacity
+            style={[styles.deleteButton, eliminando && styles.publishButtonDisabled]}
+            onPress={confirmarEliminar}
+            disabled={eliminando}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.deleteButtonText}>{eliminando ? 'Eliminando...' : '🗑️ Eliminar Fiesta'}</Text>
+          </TouchableOpacity>
+        )}
+      </ScrollView>
+
+      <ConfirmModal
+        visible={modalEliminar}
+        title="Eliminar Fiesta"
+        message="¿Estás totalmente seguro? Esto borrará el evento, los asistentes y todos los mensajes del chat para siempre."
+        confirmText="Sí, Eliminar"
+        destructive
+        onCancel={() => setModalEliminar(false)}
+        onConfirm={eliminarFiestaConfirmado}
+      />
+    </View>
   );
 }
 
-// Tus estilos intactos + Estilos del Dashboard
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
-  content: { padding: 24, paddingTop: 60, paddingBottom: 60 },
+  content: { padding: 24, paddingTop: 70, paddingBottom: 60 },
+  centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  listHeaderWrap: { paddingHorizontal: 24, paddingTop: 70 },
   header: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
   subheader: { color: '#8e8e93', fontSize: 14, marginBottom: 20 },
+  backRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  backRowText: { color: '#ff3b30', fontSize: 15, fontWeight: '600', marginLeft: 2 },
   label: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 8, marginTop: 18 },
   input: { backgroundColor: '#1c1c1e', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, color: '#fff', fontSize: 15, borderWidth: 1, borderColor: '#2c2c2e' },
   tiposRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
@@ -469,20 +645,16 @@ const styles = StyleSheet.create({
   publishButtonText: { color: '#fff', fontSize: 17, fontWeight: 'bold' },
   deleteButton: { backgroundColor: 'transparent', borderRadius: 18, paddingVertical: 18, alignItems: 'center', marginTop: 16, borderWidth: 1, borderColor: '#ff3b30' },
   deleteButtonText: { color: '#ff3b30', fontSize: 17, fontWeight: 'bold' },
-
-  // 🔥 Estilos nuevos para el Dashboard (Lista)
-  containerLista: { flex: 1, backgroundColor: '#000', paddingHorizontal: 20, paddingTop: 60 },
-  headerLista: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
-  btnVolver: { marginRight: 16, padding: 4, backgroundColor: '#1c1c1e', borderRadius: 20 },
-  tituloSeccion: { color: '#fff', fontSize: 28, fontWeight: 'bold' },
-  btnPrincipalDashboard: { backgroundColor: '#ff3b30', padding: 18, borderRadius: 16, alignItems: 'center', marginBottom: 24, shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  btnTextoDashboard: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  tarjeta: { backgroundColor: '#1c1c1e', padding: 16, borderRadius: 16, marginBottom: 16, borderWidth: 1, borderColor: '#2c2c2e' },
-  tarjetaTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  tarjetaEmoji: { fontSize: 32, marginRight: 12 },
-  tarjetaTitulo: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
-  tarjetaLugar: { color: '#8e8e93', fontSize: 14 },
-  tarjetaFecha: { color: '#ff3b30', fontSize: 13, fontWeight: '600', marginTop: 4, borderTopWidth: 1, borderTopColor: '#2c2c2e', paddingTop: 10 },
-  vacioContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 60 },
-  vacioTexto: { color: '#8e8e93', fontSize: 16, textAlign: 'center', marginTop: 16 },
+  // Lista de fiestas
+  crearNuevaButton: { flexDirection: 'row', backgroundColor: '#ff3b30', marginHorizontal: 24, marginTop: 16, marginBottom: 20, borderRadius: 16, paddingVertical: 16, alignItems: 'center', justifyContent: 'center', shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 6 },
+  crearNuevaButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 40 },
+  fiestaCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1c1e', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#2c2c2e' },
+  fiestaAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2c2c2e', alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 2, borderColor: '#ff3b30' },
+  fiestaTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
+  fiestaSubtitle: { color: '#8e8e93', fontSize: 13 },
+  badgePasada: { alignSelf: 'flex-start', backgroundColor: '#2c2c2e', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
+  badgePasadaText: { color: '#8e8e93', fontSize: 11, fontWeight: '600' },
+  emptyEmoji: { fontSize: 48, marginBottom: 12 },
+  emptyText: { color: '#8e8e93', fontSize: 15 },
 });

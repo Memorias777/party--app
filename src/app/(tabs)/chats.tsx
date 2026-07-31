@@ -1,56 +1,57 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
-import { supabase } from '../../../supabase.js';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { supabase } from '../../../supabase';
 
 export default function ChatsScreen() {
   const router = useRouter();
   const [misFiestas, setMisFiestas] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
 
-  useEffect(() => {
-    const cargarMisFiestas = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        setCargando(false);
-        return;
-      }
-
-      // 🔥 Magia: Le pedimos a Supabase que también cuente los participantes
-      const { data, error } = await supabase
-        .from('participantes')
-        .select(`
-          evento_id,
-          eventos (
-            *,
-            participantes (count)
-          )
-        `)
-        .eq('perfil_id', user.id);
-
-      if (data) {
-        const fiestasFormateadas = data
-          .map((participacion: any) => participacion.eventos || participacion.evento)
-          .filter(Boolean);
-          
-        setMisFiestas(fiestasFormateadas);
-      }
+  const cargarMisFiestas = useCallback(async () => {
+    setCargando(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
       setCargando(false);
-    };
+      setMisFiestas([]);
+      return;
+    }
 
-    cargarMisFiestas();
+    const { data, error } = await supabase
+      .from('participantes')
+      .select(`
+        evento_id,
+        eventos (
+          *,
+          participantes (count)
+        )
+      `)
+      .eq('perfil_id', user.id);
+
+    if (data) {
+      const fiestasFormateadas = data
+        .map((participacion: any) => participacion.eventos || participacion.evento)
+        .filter(Boolean)
+        // Fiestas más próximas primero
+        .sort((a: any, b: any) => new Date(a.fecha_hora).getTime() - new Date(b.fecha_hora).getTime());
+
+      setMisFiestas(fiestasFormateadas);
+    }
+    setCargando(false);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      cargarMisFiestas();
+    }, [cargarMisFiestas])
+  );
 
   const renderChat = ({ item }: { item: any }) => {
     if (!item) return null;
 
-    const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', {
-      day: 'numeric',
-      month: 'short'
-    });
-
-    // Extraemos el número de personas registradas
+    const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
     const asistentes = item.participantes?.[0]?.count || 1;
+    const yaPaso = new Date(item.fecha_hora).getTime() < Date.now();
 
     return (
       <TouchableOpacity
@@ -58,17 +59,16 @@ export default function ChatsScreen() {
         activeOpacity={0.7}
         onPress={() => router.push(`../fiesta/${item.id}`)}
       >
-        <View style={styles.avatarContainer}>
+        <View style={[styles.avatarContainer, yaPaso && styles.avatarContainerPasada]}>
           <Text style={styles.avatarEmoji}>{item.emoji || '🥳'}</Text>
         </View>
 
         <View style={styles.chatInfo}>
-          {/* 🔥 Agregamos el número de asistentes al título */}
           <Text style={styles.chatTitle} numberOfLines={1}>
             {item.titulo} ({asistentes} 👤)
           </Text>
           <Text style={styles.chatMessage} numberOfLines={1}>
-            Toca para entrar al chat...
+            {yaPaso ? 'Fiesta finalizada' : 'Toca para entrar al chat...'}
           </Text>
         </View>
 
@@ -117,6 +117,7 @@ const styles = StyleSheet.create({
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
   chatItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1c1e', borderRadius: 16, padding: 14, marginBottom: 10 },
   avatarContainer: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#2c2c2e', borderWidth: 2, borderColor: '#ff3b30', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  avatarContainerPasada: { borderColor: '#3a3a3c', opacity: 0.6 },
   avatarEmoji: { fontSize: 26 },
   chatInfo: { flex: 1 },
   chatTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },

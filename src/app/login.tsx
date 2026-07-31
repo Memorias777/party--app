@@ -5,72 +5,59 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { router } from 'expo-router';
-import { supabase } from '../../supabase.js'; // Ajusta la ruta si tu supabase.js está en otro lado
+import { supabase } from '../../supabase'; // Ajusta la ruta si tu supabase.js está en otro lado
+import { useToast } from '../components/Toast';
+import ConfirmModal from '../components/ConfirmModal';
 
 export default function LoginScreen() {
+  const { showToast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [modalVerifica, setModalVerifica] = useState(false);
 
-  // Función para INICIAR SESIÓN
   const iniciarSesion = async () => {
     if (!email || !password) {
-      Alert.alert('Faltan datos', 'Por favor ingresa tu correo y contraseña.');
+      showToast('Ingresa tu correo y contraseña', 'error');
       return;
     }
-    
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
 
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
 
     if (error) {
-      Alert.alert('Error al entrar', error.message);
+      showToast('Error al entrar', 'error', error.message);
     } else {
-      // Si todo sale bien, lo mandamos al mapa (tabs)
       router.replace('/(tabs)');
     }
   };
 
-  // Función para REGISTRARSE
   const registrarse = async () => {
     if (!email || !password) {
-      Alert.alert('Faltan datos', 'Por favor ingresa un correo y contraseña.');
+      showToast('Ingresa un correo y contraseña', 'error');
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
+    const { error } = await supabase.auth.signUp({ email, password });
     setLoading(false);
 
     if (error) {
-      Alert.alert('Error en registro', error.message);
+      showToast('Error en registro', 'error', error.message);
     } else {
-      Alert.alert(
-        '¡Bienvenido!',
-        'Tu cuenta ha sido creada. Ahora puedes iniciar sesión.'
-      );
+      // 🔥 Recordatorio claro de que hay que verificar el correo
+      setModalVerifica(true);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-      style={styles.container}
-    >
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
       <View style={styles.content}>
         <Text style={styles.emojiLogo}>🪩</Text>
         <Text style={styles.header}>Zacatecas Party</Text>
@@ -113,6 +100,16 @@ export default function LoginScreen() {
           )}
         </View>
       </View>
+
+      <ConfirmModal
+        visible={modalVerifica}
+        title="¡Ya casi! 📩"
+        message={`Te enviamos un correo de verificación a:\n${email}\n\nRevisa tu bandeja de entrada (o spam) y confirma tu cuenta antes de iniciar sesión.`}
+        confirmText="Entendido"
+        cancelText="Cerrar"
+        onConfirm={() => setModalVerifica(false)}
+        onCancel={() => setModalVerifica(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

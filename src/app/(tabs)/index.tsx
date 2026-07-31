@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,11 +7,13 @@ import {
   TextInput,
   Animated,
   Dimensions,
-  Alert,
+  Modal,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useFocusEffect, router } from 'expo-router';
-import { supabase } from '../../../supabase.js';
+import { supabase } from '../../../supabase';
+import { Ionicons } from '@expo/vector-icons';
+import ConfirmModal from '../../components/ConfirmModal';
 
 export interface Evento {
   id: string | number;
@@ -31,22 +33,30 @@ export interface Evento {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 const EMOJIS_DEFAULT = ['🥳', '🍻', '🎶', '🔥', '🎉'];
+const HORAS_VISIBLE_DESPUES = 5; // 🔥 cuánto tiempo se queda visible una fiesta ya terminada
+
+type FiltroTipo = 'todos' | 'Antro' | 'Callejoneada' | 'Norteño';
 
 export default function IndexScreen() {
   const [eventos, setEventos] = useState<Evento[]>([]);
-  const [session, setSession] = useState<any>(null); // Estado para la sesión
+  const [session, setSession] = useState<any>(null);
   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null);
   const [searchText, setSearchText] = useState('');
+  const [modalFiltros, setModalFiltros] = useState(false);
+  const [modalLoginRequerido, setModalLoginRequerido] = useState(false);
+
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
+  const [soloByob, setSoloByob] = useState(false);
+  const [soloConCover, setSoloConCover] = useState(false);
 
   const cardTranslateY = useRef(new Animated.Value(300)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
-  // Lógica de Sesión: Detectar si el usuario está logueado al abrir el mapa
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
     });
-    
+
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
@@ -57,19 +67,21 @@ export default function IndexScreen() {
   }, []);
 
   const fetchEventos = async () => {
-    // 🔥 Calculamos la fecha límite (Hace 5 horas)
+    // 🔥 Solo traemos fiestas que empezaron hace menos de HORAS_VISIBLE_DESPUES horas
+    // (o que aún no han pasado). Así el mapa se limpia solo después de un rato.
     const limiteTiempo = new Date();
-    limiteTiempo.setHours(limiteTiempo.getHours() - 5);
+    limiteTiempo.setHours(limiteTiempo.getHours() - HORAS_VISIBLE_DESPUES);
 
     const { data, error } = await supabase
       .from('eventos')
       .select('*')
-      .gte('fecha_hora', limiteTiempo.toISOString()); // Filtro inteligente
+      .gte('fecha_hora', limiteTiempo.toISOString());
 
     if (!error && data) {
       setEventos(data);
     }
   };
+
   useFocusEffect(
     useCallback(() => {
       fetchEventos();
@@ -79,31 +91,15 @@ export default function IndexScreen() {
   const openCard = (ev: Evento) => {
     setSelectedEvent(ev);
     Animated.parallel([
-      Animated.spring(cardTranslateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        bounciness: 6,
-      }),
-      Animated.timing(cardOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      }),
+      Animated.spring(cardTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 6 }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
     ]).start();
   };
 
   const closeCard = () => {
     Animated.parallel([
-      Animated.timing(cardTranslateY, {
-        toValue: 300,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(cardOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
+      Animated.timing(cardTranslateY, { toValue: 300, duration: 200, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => setSelectedEvent(null));
   };
 
@@ -116,11 +112,7 @@ export default function IndexScreen() {
     try {
       const fecha = new Date(fechaISO);
       return fecha.toLocaleString('es-MX', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
+        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
       });
     } catch {
       return fechaISO;
@@ -131,6 +123,44 @@ export default function IndexScreen() {
     if (!info || info === 'Sin Cover') return null;
     if (info.startsWith('[')) return '💵 Cover por etapas';
     return `💵 Cover: $${info}`;
+  };
+
+  // 🔥 Búsqueda + filtros aplicados sobre la lista de eventos
+  const eventosFiltrados = useMemo(() => {
+    let lista = eventos;
+
+    if (searchText.trim()) {
+      const q = searchText.trim().toLowerCase();
+      lista = lista.filter(
+        (ev) =>
+          ev.titulo?.toLowerCase().includes(q) ||
+          ev.lugar?.toLowerCase().includes(q) ||
+          ev.tipo_fiesta?.toLowerCase().includes(q)
+      );
+    }
+
+    if (filtroTipo !== 'todos') {
+      lista = lista.filter((ev) => ev.tipo_fiesta === filtroTipo);
+    }
+
+    if (soloByob) {
+      lista = lista.filter((ev) => ev.es_byob);
+    }
+
+    if (soloConCover) {
+      lista = lista.filter((ev) => ev.tiene_cover);
+    }
+
+    return lista;
+  }, [eventos, searchText, filtroTipo, soloByob, soloConCover]);
+
+  const filtrosActivos =
+    filtroTipo !== 'todos' || soloByob || soloConCover ? true : false;
+
+  const limpiarFiltros = () => {
+    setFiltroTipo('todos');
+    setSoloByob(false);
+    setSoloConCover(false);
   };
 
   return (
@@ -145,25 +175,30 @@ export default function IndexScreen() {
         }}
         onPress={closeCard}
       >
-        {eventos.map((ev, index) => (
+        {eventosFiltrados.map((ev, index) => (
           <Marker
-            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+            // 🔥 hitSlop ampliado: ahora puedes tocar bastante más lejos
+            // del pin exacto y aun así lo selecciona
+            hitSlop={{ top: 35, bottom: 35, left: 35, right: 35 }}
             key={ev.id}
             coordinate={{ latitude: ev.latitud, longitude: ev.longitud }}
             onPress={(e) => {
               e.stopPropagation();
               openCard(ev);
             }}
+            // Área táctil real más grande alrededor del ícono visual
+            tracksViewChanges={false}
           >
-            <View style={styles.markerContainer}>
-              <Text style={styles.markerEmoji}>{getEmoji(ev, index)}</Text>
+            <View style={styles.markerHitArea}>
+              <View style={styles.markerContainer}>
+                <Text style={styles.markerEmoji}>{getEmoji(ev, index)}</Text>
+              </View>
             </View>
           </Marker>
         ))}
       </MapView>
 
-      {/* Botón de Perfil / Login */}
-      <TouchableOpacity 
+      <TouchableOpacity
         style={styles.profileButton}
         activeOpacity={0.8}
         onPress={() => {
@@ -186,24 +221,32 @@ export default function IndexScreen() {
             placeholderTextColor="#8e8e93"
             value={searchText}
             onChangeText={setSearchText}
+            returnKeyType="search"
           />
+          {searchText.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchText('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close-circle" size={18} color="#8e8e93" />
+            </TouchableOpacity>
+          )}
         </View>
-        <TouchableOpacity style={styles.filterButton} activeOpacity={0.7}>
+        <TouchableOpacity
+          style={[styles.filterButton, filtrosActivos && styles.filterButtonActive]}
+          activeOpacity={0.7}
+          onPress={() => setModalFiltros(true)}
+        >
           <Text style={styles.filterIcon}>⚙️</Text>
+          {filtrosActivos && <View style={styles.filterDot} />}
         </TouchableOpacity>
       </View>
 
       <View style={styles.counterBadge}>
-        <Text style={styles.counterText}>🎉 {eventos.length} activas</Text>
+        <Text style={styles.counterText}>🎉 {eventosFiltrados.length} activas</Text>
       </View>
 
       <Animated.View
         style={[
           styles.detailCard,
-          {
-            transform: [{ translateY: cardTranslateY }],
-            opacity: cardOpacity,
-          },
+          { transform: [{ translateY: cardTranslateY }], opacity: cardOpacity },
         ]}
       >
         <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
@@ -214,7 +257,7 @@ export default function IndexScreen() {
           <>
             <Text style={styles.cardTitle}>{selectedEvent.titulo}</Text>
             <Text style={styles.cardDate}>🗓️ {formatFecha(selectedEvent.fecha_hora)}</Text>
-            
+
             <Text style={styles.cardDescription}>
               📍 {selectedEvent.lugar}
               {selectedEvent.tipo_fiesta ? ` · ${selectedEvent.tipo_fiesta}` : ''}
@@ -223,38 +266,95 @@ export default function IndexScreen() {
             </Text>
 
             {renderCoverInfo(selectedEvent.info_cover) && (
-              <Text style={styles.cardCoverText}>
-                {renderCoverInfo(selectedEvent.info_cover)}
-              </Text>
+              <Text style={styles.cardCoverText}>{renderCoverInfo(selectedEvent.info_cover)}</Text>
             )}
 
-            {/* Este botón va hasta ABAJO, justo antes de cerrar el </> y el )} */}
-            <TouchableOpacity 
-              style={styles.attendButton} 
+            <TouchableOpacity
+              style={styles.attendButton}
               activeOpacity={0.85}
               onPress={() => {
-              if (session) {
-                // Expo Router usa rutas absolutas, no necesitamos los dos puntitos.
-                // ¡Ojo a las comillas invertidas (backticks)!
-                router.push(`./fiesta/${selectedEvent.id}`);
-              } else {
-                // Si es un "fantasma", le pedimos educadamente que haga su cuenta
-                Alert.alert(
-                  "¡Estás a un paso!",
-                  "Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión.",
-                  [
-                    { text: "Cancelar", style: "cancel" },
-                    { text: "Ir al Login", onPress: () => router.push('/login') }
-                  ]
-                );
-              }
-            }}
+                if (session) {
+                  router.push(`./fiesta/${selectedEvent.id}`);
+                } else {
+                  setModalLoginRequerido(true);
+                }
+              }}
             >
               <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
             </TouchableOpacity>
           </>
         )}
       </Animated.View>
+
+      {/* Modal de Filtros */}
+      <Modal visible={modalFiltros} transparent animationType="slide" onRequestClose={() => setModalFiltros(false)}>
+        <View style={styles.filtrosOverlay}>
+          <View style={styles.filtrosSheet}>
+            <View style={styles.filtrosHeader}>
+              <Text style={styles.filtrosTitle}>Filtros</Text>
+              <TouchableOpacity onPress={() => setModalFiltros(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.filtrosLabel}>Tipo de fiesta</Text>
+            <View style={styles.filtrosTiposRow}>
+              {(['todos', 'Antro', 'Callejoneada', 'Norteño'] as FiltroTipo[]).map((tipo) => (
+                <TouchableOpacity
+                  key={tipo}
+                  style={[styles.filtroChip, filtroTipo === tipo && styles.filtroChipActivo]}
+                  onPress={() => setFiltroTipo(tipo)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filtroChipText, filtroTipo === tipo && styles.filtroChipTextActivo]}>
+                    {tipo === 'todos' ? 'Todos' : tipo}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity style={styles.filtrosSwitchRow} onPress={() => setSoloByob(!soloByob)} activeOpacity={0.7}>
+              <Text style={styles.filtrosSwitchLabel}>🍺 Solo BYOB</Text>
+              <Ionicons
+                name={soloByob ? 'checkbox' : 'square-outline'}
+                size={24}
+                color={soloByob ? '#ff3b30' : '#8e8e93'}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.filtrosSwitchRow} onPress={() => setSoloConCover(!soloConCover)} activeOpacity={0.7}>
+              <Text style={styles.filtrosSwitchLabel}>💵 Solo con Cover</Text>
+              <Ionicons
+                name={soloConCover ? 'checkbox' : 'square-outline'}
+                size={24}
+                color={soloConCover ? '#ff3b30' : '#8e8e93'}
+              />
+            </TouchableOpacity>
+
+            <View style={styles.filtrosBotonesRow}>
+              <TouchableOpacity style={styles.filtrosLimpiarBtn} onPress={limpiarFiltros} activeOpacity={0.8}>
+                <Text style={styles.filtrosLimpiarText}>Limpiar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.filtrosAplicarBtn} onPress={() => setModalFiltros(false)} activeOpacity={0.85}>
+                <Text style={styles.filtrosAplicarText}>Aplicar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <ConfirmModal
+        visible={modalLoginRequerido}
+        title="¡Estás a un paso! 🔑"
+        message="Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión."
+        confirmText="Ir al Login"
+        cancelText="Cancelar"
+        onCancel={() => setModalLoginRequerido(false)}
+        onConfirm={() => {
+          setModalLoginRequerido(false);
+          router.push('/login');
+        }}
+      />
     </View>
   );
 }
@@ -262,8 +362,7 @@ export default function IndexScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
-  
-  // Estilo nuevo para el botón de perfil
+
   profileButton: {
     position: 'absolute',
     top: 60,
@@ -285,7 +384,7 @@ const styles = StyleSheet.create({
   searchBarWrapper: {
     position: 'absolute',
     top: 60,
-    left: 74, // Movido un poco a la derecha para no chocar con el botón de perfil
+    left: 74,
     right: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -320,17 +419,37 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
+  filterButtonActive: { backgroundColor: '#ff3b30' },
   filterIcon: { fontSize: 18 },
+  filterDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#ff3b30',
+  },
   counterBadge: {
     position: 'absolute',
     top: 118,
-    left: 74, // Alineado con la barra de búsqueda
+    left: 74,
     backgroundColor: 'rgba(28, 28, 30, 0.85)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 14,
   },
   counterText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+
+  // 🔥 Área táctil invisible más grande alrededor del pin
+  markerHitArea: {
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   markerContainer: {
     width: 30,
     height: 30,
@@ -349,13 +468,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 6,
-    marginBottom: 8, 
   },
-  markerEmoji: { 
-    fontSize: 16, 
-    transform: [{ rotate: '-45deg' }],
-    textAlign: 'center',
-  },
+  markerEmoji: { fontSize: 16, transform: [{ rotate: '-45deg' }], textAlign: 'center' },
+
   detailCard: {
     position: 'absolute',
     bottom: 0,
@@ -393,4 +508,23 @@ const styles = StyleSheet.create({
   cardCoverText: { color: '#fff', fontSize: 14, fontWeight: 'bold', marginBottom: 16 },
   attendButton: { backgroundColor: '#ff3b30', borderRadius: 16, paddingVertical: 15, alignItems: 'center' },
   attendButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+
+  // Modal de filtros
+  filtrosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  filtrosSheet: { backgroundColor: '#1c1c1e', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  filtrosHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  filtrosTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
+  filtrosLabel: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 10 },
+  filtrosTiposRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
+  filtroChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#2c2c2e', borderWidth: 1, borderColor: '#3a3a3c' },
+  filtroChipActivo: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: '#ff3b30' },
+  filtroChipText: { color: '#8e8e93', fontSize: 13, fontWeight: '600' },
+  filtroChipTextActivo: { color: '#ff3b30' },
+  filtrosSwitchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#2c2c2e', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 10 },
+  filtrosSwitchLabel: { color: '#fff', fontSize: 15 },
+  filtrosBotonesRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  filtrosLimpiarBtn: { flex: 1, backgroundColor: '#2c2c2e', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  filtrosLimpiarText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  filtrosAplicarBtn: { flex: 1, backgroundColor: '#ff3b30', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  filtrosAplicarText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });
