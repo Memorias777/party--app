@@ -34,13 +34,14 @@ const EMOJIS_DEFAULT = ['🥳', '🍻', '🎶', '🔥', '🎉'];
 
 export default function IndexScreen() {
   const [eventos, setEventos] = useState<Evento[]>([]);
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<any>(null); // Estado para la sesión
   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null);
   const [searchText, setSearchText] = useState('');
 
   const cardTranslateY = useRef(new Animated.Value(300)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
 
+  // Lógica de Sesión: Detectar si el usuario está logueado al abrir el mapa
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -56,20 +57,19 @@ export default function IndexScreen() {
   }, []);
 
   const fetchEventos = async () => {
-    // Regla de las 5 horas
+    // 🔥 Calculamos la fecha límite (Hace 5 horas)
     const limiteTiempo = new Date();
     limiteTiempo.setHours(limiteTiempo.getHours() - 5);
 
     const { data, error } = await supabase
       .from('eventos')
       .select('*')
-      .gte('fecha_hora', limiteTiempo.toISOString());
+      .gte('fecha_hora', limiteTiempo.toISOString()); // Filtro inteligente
 
     if (!error && data) {
       setEventos(data);
     }
   };
-
   useFocusEffect(
     useCallback(() => {
       fetchEventos();
@@ -133,16 +133,6 @@ export default function IndexScreen() {
     return `💵 Cover: $${info}`;
   };
 
-  // 🔥 LÓGICA DEL BUSCADOR: Filtramos los eventos en tiempo real
-  const eventosFiltrados = eventos.filter((ev) => {
-    if (!searchText.trim()) return true;
-    const textLowerCase = searchText.toLowerCase();
-    return (
-      ev.titulo.toLowerCase().includes(textLowerCase) || 
-      ev.lugar.toLowerCase().includes(textLowerCase)
-    );
-  });
-
   return (
     <View style={styles.container}>
       <MapView
@@ -155,9 +145,9 @@ export default function IndexScreen() {
         }}
         onPress={closeCard}
       >
-        {eventosFiltrados.map((ev, index) => (
+        {eventos.map((ev, index) => (
           <Marker
-            hitSlop={{ top: 30, bottom: 30, left: 30, right: 30 }} // Ampliado para mejor experiencia táctil
+            hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
             key={ev.id}
             coordinate={{ latitude: ev.latitud, longitude: ev.longitud }}
             onPress={(e) => {
@@ -172,6 +162,7 @@ export default function IndexScreen() {
         ))}
       </MapView>
 
+      {/* Botón de Perfil / Login */}
       <TouchableOpacity 
         style={styles.profileButton}
         activeOpacity={0.8}
@@ -203,8 +194,7 @@ export default function IndexScreen() {
       </View>
 
       <View style={styles.counterBadge}>
-        {/* Contador dinámico basado en la búsqueda */}
-        <Text style={styles.counterText}>🎉 {eventosFiltrados.length} activas</Text>
+        <Text style={styles.counterText}>🎉 {eventos.length} activas</Text>
       </View>
 
       <Animated.View
@@ -238,23 +228,27 @@ export default function IndexScreen() {
               </Text>
             )}
 
+            {/* Este botón va hasta ABAJO, justo antes de cerrar el </> y el )} */}
             <TouchableOpacity 
               style={styles.attendButton} 
               activeOpacity={0.85}
               onPress={() => {
-                if (session) {
-                  router.push(`./fiesta/${selectedEvent.id}`);
-                } else {
-                  Alert.alert(
-                    "¡Estás a un paso!",
-                    "Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión.",
-                    [
-                      { text: "Cancelar", style: "cancel" },
-                      { text: "Ir al Login", onPress: () => router.push('/login') }
-                    ]
-                  );
-                }
-              }}
+              if (session) {
+                // Expo Router usa rutas absolutas, no necesitamos los dos puntitos.
+                // ¡Ojo a las comillas invertidas (backticks)!
+                router.push(`./fiesta/${selectedEvent.id}`);
+              } else {
+                // Si es un "fantasma", le pedimos educadamente que haga su cuenta
+                Alert.alert(
+                  "¡Estás a un paso!",
+                  "Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión.",
+                  [
+                    { text: "Cancelar", style: "cancel" },
+                    { text: "Ir al Login", onPress: () => router.push('/login') }
+                  ]
+                );
+              }
+            }}
             >
               <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
             </TouchableOpacity>
@@ -268,6 +262,8 @@ export default function IndexScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { flex: 1 },
+  
+  // Estilo nuevo para el botón de perfil
   profileButton: {
     position: 'absolute',
     top: 60,
@@ -285,10 +281,11 @@ const styles = StyleSheet.create({
     elevation: 6,
     zIndex: 10,
   },
+
   searchBarWrapper: {
     position: 'absolute',
     top: 60,
-    left: 74,
+    left: 74, // Movido un poco a la derecha para no chocar con el botón de perfil
     right: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -327,7 +324,7 @@ const styles = StyleSheet.create({
   counterBadge: {
     position: 'absolute',
     top: 118,
-    left: 74,
+    left: 74, // Alineado con la barra de búsqueda
     backgroundColor: 'rgba(28, 28, 30, 0.85)',
     paddingHorizontal: 12,
     paddingVertical: 6,
