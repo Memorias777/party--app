@@ -1,7 +1,28 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../supabase';
+
+// -----------------------------------------------------------------------
+// Paletas inspiradas en pintura líquida / marmoleado (turquesa, verdes,
+// amarillos, blancos, cafés) — cada fiesta usa una consistentemente según
+// su id, así se ve "viva" y distinta sin depender de un flyer real todavía.
+// -----------------------------------------------------------------------
+const PALETAS = [
+  ['#0FC2C0', '#F4D35E', '#EDEEC9'],   // turquesa + amarillo + crema
+  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],   // turquesa + blanco + naranja
+  ['#7B9E43', '#F4D35E', '#3D2B1F'],   // verde oliva + amarillo + café
+  ['#118AB2', '#06D6A0', '#FFD166'],   // azul + verde menta + amarillo
+  ['#3A86FF', '#8AC926', '#FFCA3A'],   // azul + verde + amarillo vivo
+  ['#5EC6C0', '#2D3142', '#F4D35E'],   // turquesa + carbón + amarillo
+];
+
+const paletaParaId = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETAS[hash % PALETAS.length];
+};
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -32,7 +53,6 @@ export default function ChatsScreen() {
       const fiestasFormateadas = data
         .map((participacion: any) => participacion.eventos || participacion.evento)
         .filter(Boolean)
-        // Fiestas más próximas primero
         .sort((a: any, b: any) => new Date(a.fecha_hora).getTime() - new Date(b.fecha_hora).getTime());
 
       setMisFiestas(fiestasFormateadas);
@@ -52,28 +72,53 @@ export default function ChatsScreen() {
     const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
     const asistentes = item.participantes?.[0]?.count || 1;
     const yaPaso = new Date(item.fecha_hora).getTime() < Date.now();
+    const [colorA, colorB, colorC] = paletaParaId(String(item.id));
 
     return (
       <TouchableOpacity
-        style={styles.chatItem}
-        activeOpacity={0.7}
+        style={styles.card}
+        activeOpacity={0.85}
         onPress={() => router.push(`../fiesta/${item.id}`)}
       >
-        <View style={[styles.avatarContainer, yaPaso && styles.avatarContainerPasada]}>
-          <Text style={styles.avatarEmoji}>{item.emoji || '🥳'}</Text>
-        </View>
+        <LinearGradient
+          colors={[colorA, colorB, colorC]}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={[styles.banner, yaPaso && styles.bannerApagado]}
+        >
+          {/* Capa de manchas suaves para dar textura tipo "pintura" */}
+          <LinearGradient
+            colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.6, y: 0.8 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
+            start={{ x: 0.3, y: 0.2 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
 
-        <View style={styles.chatInfo}>
-          <Text style={styles.chatTitle} numberOfLines={1}>
-            {item.titulo} ({asistentes} 👤)
-          </Text>
-          <Text style={styles.chatMessage} numberOfLines={1}>
-            {yaPaso ? 'Fiesta finalizada' : 'Toca para entrar al chat...'}
-          </Text>
-        </View>
+          <View style={styles.bannerTopRow}>
+            {yaPaso && (
+              <View style={styles.badgeFinalizada}>
+                <Text style={styles.badgeFinalizadaText}>Finalizada</Text>
+              </View>
+            )}
+            <View style={styles.asistentesBadge}>
+              <Text style={styles.asistentesBadgeText}>👤 {asistentes}</Text>
+            </View>
+          </View>
 
-        <View style={styles.chatMeta}>
-          <Text style={styles.chatHora}>{fecha}</Text>
+          <Text style={styles.bannerEmoji}>{item.emoji || '🥳'}</Text>
+        </LinearGradient>
+
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardTitle} numberOfLines={1}>{item.titulo}</Text>
+          <Text style={styles.cardSubtitle} numberOfLines={1}>
+            {yaPaso ? '✔️ Fiesta finalizada' : '💬 Toca para entrar al chat'} · {fecha}
+          </Text>
         </View>
       </TouchableOpacity>
     );
@@ -115,15 +160,58 @@ const styles = StyleSheet.create({
   header: { color: '#fff', fontSize: 28, fontWeight: 'bold', paddingHorizontal: 24 },
   subheader: { color: '#8e8e93', fontSize: 14, paddingHorizontal: 24, marginBottom: 20 },
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
-  chatItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1c1e', borderRadius: 16, padding: 14, marginBottom: 10 },
-  avatarContainer: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#2c2c2e', borderWidth: 2, borderColor: '#ff3b30', alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  avatarContainerPasada: { borderColor: '#3a3a3c', opacity: 0.6 },
-  avatarEmoji: { fontSize: 26 },
-  chatInfo: { flex: 1 },
-  chatTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  chatMessage: { color: '#8e8e93', fontSize: 14 },
-  chatMeta: { alignItems: 'flex-end', marginLeft: 8 },
-  chatHora: { color: '#636366', fontSize: 12, marginBottom: 6 },
+
+  card: {
+    borderRadius: 22,
+    marginBottom: 18,
+    backgroundColor: '#1c1c1e',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  banner: {
+    height: 150,
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  bannerApagado: {
+    opacity: 0.55,
+  },
+  bannerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+  },
+  badgeFinalizada: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  badgeFinalizadaText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  asistentesBadge: {
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  asistentesBadgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  bannerEmoji: {
+    fontSize: 56,
+    alignSelf: 'center',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 6,
+  },
+
+  cardInfo: { padding: 16 },
+  cardTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  cardSubtitle: { color: '#a1a1a6', fontSize: 13 },
+
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 100 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { color: '#8e8e93', fontSize: 15 },

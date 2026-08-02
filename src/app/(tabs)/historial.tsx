@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../supabase';
 import { useFocusEffect, router } from 'expo-router';
 import { useToast } from '../../components/Toast';
@@ -10,21 +11,27 @@ export interface HistorialItem {
   nombreEvento: string;
   fecha: string;
   lugar: string;
-  calificacion: number;
   link_fotos?: string;
 }
 
-function StarRating({ calificacion, onRate }: { calificacion: number; onRate: (n: number) => void }) {
-  return (
-    <View style={styles.starsRow}>
-      {[1, 2, 3, 4, 5].map((estrella) => (
-        <TouchableOpacity key={estrella} onPress={() => onRate(estrella)} activeOpacity={0.6}>
-          <Text style={styles.star}>{estrella <= calificacion ? '⭐' : '☆'}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
+// -----------------------------------------------------------------------
+// Mismas paletas tipo pintura líquida que en chats.tsx, para que ambas
+// pantallas se sientan parte de la misma identidad visual.
+// -----------------------------------------------------------------------
+const PALETAS = [
+  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
+  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
+  ['#7B9E43', '#F4D35E', '#3D2B1F'],
+  ['#118AB2', '#06D6A0', '#FFD166'],
+  ['#3A86FF', '#8AC926', '#FFCA3A'],
+  ['#5EC6C0', '#2D3142', '#F4D35E'],
+];
+
+const paletaParaId = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETAS[hash % PALETAS.length];
+};
 
 export default function HistorialScreen() {
   const { showToast } = useToast();
@@ -45,7 +52,6 @@ export default function HistorialScreen() {
   const cargarHistorial = useCallback(async (perfil_id: string) => {
     setCargando(true);
     try {
-      // 1. Traemos todas las fiestas a las que el usuario asistió (participantes) que ya pasaron
       const { data: participaciones, error: errParticipantes } = await supabase
         .from('participantes')
         .select('evento_id, eventos(id, titulo, lugar, fecha_hora, emoji, link_fotos)')
@@ -63,24 +69,6 @@ export default function HistorialScreen() {
         .map((p: any) => p.eventos)
         .filter((ev: any) => ev && new Date(ev.fecha_hora).getTime() < ahora);
 
-      if (pasadas.length === 0) {
-        setHistorial([]);
-        return;
-      }
-
-      // 2. Traemos las calificaciones ya guardadas para esas fiestas (si existen)
-      const idsEventos = pasadas.map((ev: any) => ev.id);
-      const { data: calificaciones } = await supabase
-        .from('historial_ia')
-        .select('evento_id, calificacion')
-        .eq('perfil_id', perfil_id)
-        .in('evento_id', idsEventos);
-
-      const mapaCalificaciones: Record<string, number> = {};
-      (calificaciones || []).forEach((c: any) => {
-        mapaCalificaciones[c.evento_id] = c.calificacion || 0;
-      });
-
       const formateado: HistorialItem[] = pasadas
         .sort((a: any, b: any) => new Date(b.fecha_hora).getTime() - new Date(a.fecha_hora).getTime())
         .map((ev: any) => ({
@@ -89,7 +77,6 @@ export default function HistorialScreen() {
           nombreEvento: ev.titulo || 'Evento',
           fecha: formatearFecha(ev.fecha_hora),
           lugar: ev.lugar || 'Lugar desconocido',
-          calificacion: mapaCalificaciones[ev.id] || 0,
           link_fotos: ev.link_fotos,
         }));
 
@@ -119,25 +106,6 @@ export default function HistorialScreen() {
     }, [cargarHistorial])
   );
 
-  const actualizarCalificacion = async (evento_id: string, nuevaCalificacion: number) => {
-    setHistorial((prev) => prev.map((item) => (item.id === evento_id ? { ...item, calificacion: nuevaCalificacion } : item)));
-
-    if (!userId) return;
-
-    // 🔥 upsert: crea el registro en historial_ia si no existía, o lo actualiza si ya estaba
-    const { error } = await supabase
-      .from('historial_ia')
-      .upsert(
-        { perfil_id: userId, evento_id, calificacion: nuevaCalificacion },
-        { onConflict: 'perfil_id,evento_id' }
-      );
-
-    if (error) {
-      console.error('Error al guardar calificación:', error);
-      showToast('No se pudo guardar la calificación', 'error');
-    }
-  };
-
   const abrirFotos = async (link_fotos?: string) => {
     if (!link_fotos) {
       showToast('El administrador aún no ha subido fotos', 'info');
@@ -150,28 +118,50 @@ export default function HistorialScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: HistorialItem }) => (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        <View style={styles.avatarContainer}>
-          <Text style={styles.avatarEmoji}>{item.emoji}</Text>
-        </View>
+  const renderItem = ({ item }: { item: HistorialItem }) => {
+    const [colorA, colorB, colorC] = paletaParaId(String(item.id));
+
+    return (
+      <View style={styles.card}>
+        <LinearGradient
+          colors={[colorA, colorB, colorC]}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={styles.banner}
+        >
+          <LinearGradient
+            colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.6, y: 0.8 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
+            start={{ x: 0.3, y: 0.2 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+
+          <View style={styles.bannerTopRow}>
+            <View style={styles.badgeVivida}>
+              <Text style={styles.badgeVividaText}>✔️ Ya la viviste</Text>
+            </View>
+          </View>
+
+          <Text style={styles.bannerEmoji}>{item.emoji}</Text>
+        </LinearGradient>
+
         <View style={styles.cardInfo}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.nombreEvento}</Text>
           <Text style={styles.cardSubtitle}>📍 {item.lugar} · {item.fecha}</Text>
+
+          <TouchableOpacity style={styles.photosButton} activeOpacity={0.75} onPress={() => abrirFotos(item.link_fotos)}>
+            <Text style={styles.photosButtonText}>📸 Ver fotos del evento</Text>
+          </TouchableOpacity>
         </View>
       </View>
-
-      <View style={styles.ratingSection}>
-        <Text style={styles.ratingLabel}>¿Cómo estuvo? 🎉</Text>
-        <StarRating calificacion={item.calificacion} onRate={(nueva) => actualizarCalificacion(item.id, nueva)} />
-      </View>
-
-      <TouchableOpacity style={styles.photosButton} activeOpacity={0.7} onPress={() => abrirFotos(item.link_fotos)}>
-        <Text style={styles.photosButtonText}>📸 Ver fotos del evento</Text>
-      </TouchableOpacity>
-    </View>
-  );
+    );
+  };
 
   if (!userId && !cargando) {
     return (
@@ -228,17 +218,45 @@ const styles = StyleSheet.create({
   emptySubtext: { color: '#636366', fontSize: 12, textAlign: 'center', marginTop: 6 },
   loginBtn: { backgroundColor: '#ff3b30', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 14, marginTop: 20 },
   loginBtnText: { color: '#fff', fontWeight: 'bold' },
-  card: { backgroundColor: '#1c1c1e', borderRadius: 18, padding: 16, marginBottom: 14 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
-  avatarContainer: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2c2c2e', borderWidth: 2, borderColor: '#ff3b30', alignItems: 'center', justifyContent: 'center', marginRight: 12 },
-  avatarEmoji: { fontSize: 24 },
-  cardInfo: { flex: 1 },
-  cardTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  cardSubtitle: { color: '#8e8e93', fontSize: 13 },
-  ratingSection: { marginBottom: 14 },
-  ratingLabel: { color: '#fff', fontSize: 13, fontWeight: '600', marginBottom: 8 },
-  starsRow: { flexDirection: 'row', marginBottom: 0, gap: 4 },
-  star: { fontSize: 22 },
+
+  card: {
+    borderRadius: 22,
+    marginBottom: 18,
+    backgroundColor: '#1c1c1e',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  banner: {
+    height: 150,
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  bannerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  badgeVivida: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  badgeVividaText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  bannerEmoji: {
+    fontSize: 56,
+    alignSelf: 'center',
+    textShadowColor: 'rgba(0,0,0,0.25)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 6,
+  },
+
+  cardInfo: { padding: 16 },
+  cardTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
+  cardSubtitle: { color: '#a1a1a6', fontSize: 13, marginBottom: 14 },
   photosButton: { backgroundColor: '#2c2c2e', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
   photosButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });
