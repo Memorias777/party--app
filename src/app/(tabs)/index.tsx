@@ -9,8 +9,10 @@ import {
   Dimensions,
   Modal,
   Platform,
+  ScrollView,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, router } from 'expo-router';
 import { supabase } from '../../../supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,10 +35,58 @@ export interface Evento {
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const EMOJIS_DEFAULT = ['🥳', '🍻', '🎶', '🔥', '🎉'];
-const HORAS_VISIBLE_DESPUES = 5; // 🔥 cuánto tiempo se queda visible una fiesta ya terminada
+const HORAS_VISIBLE_DESPUES = 5;
 
 type FiltroTipo = 'todos' | 'Antro' | 'Callejoneada' | 'Norteño';
+type FiltroTiempo = 'hoy' | 'semana' | 'mes' | 'todos';
+
+// Mismas paletas "pintura líquida" que en chats/historial, para que el
+// banner del mapa se sienta parte de la misma familia visual de la app.
+const PALETAS = [
+  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
+  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
+  ['#7B9E43', '#F4D35E', '#3D2B1F'],
+  ['#118AB2', '#06D6A0', '#FFD166'],
+  ['#3A86FF', '#8AC926', '#FFCA3A'],
+  ['#5EC6C0', '#2D3142', '#F4D35E'],
+];
+
+const paletaParaId = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETAS[hash % PALETAS.length];
+};
+
+// -----------------------------------------------------------------------
+// Estilo de mapa oscuro premium (tipo Uber de noche): calles en grises
+// oscuros, agua azul marino profundo, POIs comerciales ocultos para que
+// no distraigan de los pines de fiestas.
+// -----------------------------------------------------------------------
+const MAPA_ESTILO_OSCURO = [
+  { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8aa3' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c9c9e0' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#16213e' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#4a5568' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2a45' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1a1a2e' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#6c6c8a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3a3a5c' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1a1a2e' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#b8b8d4' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4a5568' }] },
+];
+
+const FILTROS_TIEMPO: { key: FiltroTiempo; label: string }[] = [
+  { key: 'hoy', label: 'Hoy' },
+  { key: 'semana', label: 'Esta semana' },
+  { key: 'mes', label: 'Este mes' },
+  { key: 'todos', label: 'Todas' },
+];
 
 export default function IndexScreen() {
   const [eventos, setEventos] = useState<Evento[]>([]);
@@ -46,6 +96,7 @@ export default function IndexScreen() {
   const [modalFiltros, setModalFiltros] = useState(false);
   const [modalLoginRequerido, setModalLoginRequerido] = useState(false);
 
+  const [filtroTiempo, setFiltroTiempo] = useState<FiltroTiempo>('todos');
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos');
   const [soloByob, setSoloByob] = useState(false);
   const [soloConCover, setSoloConCover] = useState(false);
@@ -68,8 +119,6 @@ export default function IndexScreen() {
   }, []);
 
   const fetchEventos = async () => {
-    // 🔥 Solo traemos fiestas que empezaron hace menos de HORAS_VISIBLE_DESPUES horas
-    // (o que aún no han pasado). Así el mapa se limpia solo después de un rato.
     const limiteTiempo = new Date();
     limiteTiempo.setHours(limiteTiempo.getHours() - HORAS_VISIBLE_DESPUES);
 
@@ -104,11 +153,6 @@ export default function IndexScreen() {
     ]).start(() => setSelectedEvent(null));
   };
 
-  const getEmoji = (ev: Evento, index: number) => {
-    if (ev.emoji && ev.emoji.trim() !== '') return ev.emoji;
-    return EMOJIS_DEFAULT[index % EMOJIS_DEFAULT.length];
-  };
-
   const formatFecha = (fechaISO: string) => {
     try {
       const fecha = new Date(fechaISO);
@@ -123,10 +167,9 @@ export default function IndexScreen() {
   const renderCoverInfo = (info?: string) => {
     if (!info || info === 'Sin Cover') return null;
     if (info.startsWith('[')) return '💵 Cover por etapas';
-    return `💵 Cover: $${info}`;
+    return `💵 $${info}`;
   };
 
-  // 🔥 Búsqueda + filtros aplicados sobre la lista de eventos
   const eventosFiltrados = useMemo(() => {
     let lista = eventos;
 
@@ -138,6 +181,25 @@ export default function IndexScreen() {
           ev.lugar?.toLowerCase().includes(q) ||
           ev.tipo_fiesta?.toLowerCase().includes(q)
       );
+    }
+
+    if (filtroTiempo !== 'todos') {
+      const ahora = new Date();
+      lista = lista.filter((ev) => {
+        const fechaEv = new Date(ev.fecha_hora);
+        if (filtroTiempo === 'hoy') {
+          return fechaEv.toDateString() === ahora.toDateString();
+        }
+        if (filtroTiempo === 'semana') {
+          const finSemana = new Date(ahora);
+          finSemana.setDate(ahora.getDate() + (7 - ahora.getDay()));
+          return fechaEv <= finSemana;
+        }
+        if (filtroTiempo === 'mes') {
+          return fechaEv.getMonth() === ahora.getMonth() && fechaEv.getFullYear() === ahora.getFullYear();
+        }
+        return true;
+      });
     }
 
     if (filtroTipo !== 'todos') {
@@ -153,10 +215,9 @@ export default function IndexScreen() {
     }
 
     return lista;
-  }, [eventos, searchText, filtroTipo, soloByob, soloConCover]);
+  }, [eventos, searchText, filtroTiempo, filtroTipo, soloByob, soloConCover]);
 
-  const filtrosActivos =
-    filtroTipo !== 'todos' || soloByob || soloConCover ? true : false;
+  const filtrosActivos = filtroTipo !== 'todos' || soloByob || soloConCover;
 
   const limpiarFiltros = () => {
     setFiltroTipo('todos');
@@ -164,10 +225,15 @@ export default function IndexScreen() {
     setSoloConCover(false);
   };
 
+  const [colorBannerA, colorBannerB, colorBannerC] = selectedEvent
+    ? paletaParaId(String(selectedEvent.id))
+    : PALETAS[0];
+
   return (
     <View style={styles.container}>
       <MapView
         style={styles.map}
+        customMapStyle={MAPA_ESTILO_OSCURO}
         initialRegion={{
           latitude: 22.7709,
           longitude: -102.5832,
@@ -176,25 +242,26 @@ export default function IndexScreen() {
         }}
         onPress={closeCard}
       >
-        {eventosFiltrados.map((ev, index) => (
-  <Marker
-    hitSlop={{ top: 35, bottom: 35, left: 35, right: 35 }}
-    key={ev.id}
-    coordinate={{ latitude: Number(ev.latitud), longitude: Number(ev.longitud) }}
-    onPress={(e) => {
-      e.stopPropagation();
-      openCard(ev);
-    }}
-    anchor={{ x: 0.5, y: 1 }}
-  >
-    <View style={styles.markerWrapper}>
-      <View style={styles.markerContainer}>
-        <Text style={styles.markerEmoji}>{getEmoji(ev, index)}</Text>
-      </View>
-      <View style={styles.markerColita} />
-    </View>
-  </Marker>
-))}
+        {eventosFiltrados.map((ev) => {
+          const [colorPin] = paletaParaId(String(ev.id));
+          return (
+            <Marker
+              hitSlop={{ top: 25, bottom: 25, left: 25, right: 25 }}
+              key={ev.id}
+              coordinate={{ latitude: Number(ev.latitud), longitude: Number(ev.longitud) }}
+              onPress={(e) => {
+                e.stopPropagation();
+                openCard(ev);
+              }}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <View style={styles.pinWrapper}>
+                <View style={[styles.pinHead, { backgroundColor: colorPin }]} />
+                <View style={[styles.pinTail, { borderTopColor: colorPin }]} />
+              </View>
+            </Marker>
+          );
+        })}
       </MapView>
 
       <TouchableOpacity
@@ -213,18 +280,18 @@ export default function IndexScreen() {
 
       <View style={styles.searchBarWrapper}>
         <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
+          <Ionicons name="search" size={17} color="#8a8aa3" style={{ marginRight: 8 }} />
           <TextInput
             style={styles.searchInput}
             placeholder="Buscar fiestas, lugares..."
-            placeholderTextColor="#8e8e93"
+            placeholderTextColor="#6c6c8a"
             value={searchText}
             onChangeText={setSearchText}
             returnKeyType="search"
           />
           {searchText.length > 0 && (
             <TouchableOpacity onPress={() => setSearchText('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close-circle" size={18} color="#8e8e93" />
+              <Ionicons name="close-circle" size={18} color="#8a8aa3" />
             </TouchableOpacity>
           )}
         </View>
@@ -233,10 +300,31 @@ export default function IndexScreen() {
           activeOpacity={0.7}
           onPress={() => setModalFiltros(true)}
         >
-          <Text style={styles.filterIcon}>⚙️</Text>
+          <Ionicons name="options" size={20} color="#fff" />
           {filtrosActivos && <View style={styles.filterDot} />}
         </TouchableOpacity>
       </View>
+
+      {/* 🔥 Chips de filtro por tiempo, siempre visibles, sin entrar al modal */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.tiempoChipsWrapper}
+        contentContainerStyle={styles.tiempoChipsContent}
+      >
+        {FILTROS_TIEMPO.map((f) => (
+          <TouchableOpacity
+            key={f.key}
+            style={[styles.tiempoChip, filtroTiempo === f.key && styles.tiempoChipActivo]}
+            onPress={() => setFiltroTiempo(f.key)}
+            activeOpacity={0.75}
+          >
+            <Text style={[styles.tiempoChipText, filtroTiempo === f.key && styles.tiempoChipTextActivo]}>
+              {f.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
       <View style={styles.counterBadge}>
         <Text style={styles.counterText}>🎉 {eventosFiltrados.length} activas</Text>
@@ -248,44 +336,91 @@ export default function IndexScreen() {
           { transform: [{ translateY: cardTranslateY }], opacity: cardOpacity },
         ]}
       >
-        <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
-          <Text style={styles.closeButtonText}>✕</Text>
-        </TouchableOpacity>
-
         {selectedEvent && (
           <>
-            <Text style={styles.cardTitle}>{selectedEvent.titulo}</Text>
-            <Text style={styles.cardDate}>🗓️ {formatFecha(selectedEvent.fecha_hora)}</Text>
-
-            <Text style={styles.cardDescription}>
-              📍 {selectedEvent.lugar}
-              {selectedEvent.tipo_fiesta ? ` · ${selectedEvent.tipo_fiesta}` : ''}
-              {selectedEvent.es_byob ? ' · BYOB 🍻' : ''}
-              {selectedEvent.solo_mayores ? ' · +18 🔞' : ''}
-            </Text>
-
-            {renderCoverInfo(selectedEvent.info_cover) && (
-              <Text style={styles.cardCoverText}>{renderCoverInfo(selectedEvent.info_cover)}</Text>
-            )}
-
-            <TouchableOpacity
-              style={styles.attendButton}
-              activeOpacity={0.85}
-              onPress={() => {
-                if (session) {
-                  router.push(`./fiesta/${selectedEvent.id}`);
-                } else {
-                  setModalLoginRequerido(true);
-                }
-              }}
+            <LinearGradient
+              colors={[colorBannerA, colorBannerB, colorBannerC]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={styles.detailBanner}
             >
-              <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
-            </TouchableOpacity>
+              <LinearGradient
+                colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.6, y: 0.8 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <LinearGradient
+                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.45)']}
+                start={{ x: 0.3, y: 0.1 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+
+              <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
+                <Ionicons name="close" size={18} color="#fff" />
+              </TouchableOpacity>
+
+              <Text style={styles.detailBannerEmoji}>{selectedEvent.emoji || '🥳'}</Text>
+              <Text style={styles.detailBannerTitle} numberOfLines={2}>{selectedEvent.titulo}</Text>
+            </LinearGradient>
+
+            <View style={styles.detailBody}>
+              <View style={styles.chipsRow}>
+                <View style={styles.chip}>
+                  <Ionicons name="calendar" size={13} color="#c9c9e0" />
+                  <Text style={styles.chipText}>{formatFecha(selectedEvent.fecha_hora)}</Text>
+                </View>
+                <View style={styles.chip}>
+                  <Ionicons name="location" size={13} color="#c9c9e0" />
+                  <Text style={styles.chipText} numberOfLines={1}>{selectedEvent.lugar}</Text>
+                </View>
+              </View>
+
+              <View style={styles.chipsRow}>
+                {selectedEvent.tipo_fiesta && (
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>{selectedEvent.tipo_fiesta}</Text>
+                  </View>
+                )}
+                {selectedEvent.es_byob && (
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>🍻 BYOB</Text>
+                  </View>
+                )}
+                {selectedEvent.solo_mayores && (
+                  <View style={styles.chip}>
+                    <Text style={styles.chipText}>🔞 +18</Text>
+                  </View>
+                )}
+                {renderCoverInfo(selectedEvent.info_cover) && (
+                  <View style={[styles.chip, styles.chipCover]}>
+                    <Text style={[styles.chipText, styles.chipCoverText]}>
+                      {renderCoverInfo(selectedEvent.info_cover)}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={styles.attendButton}
+                activeOpacity={0.85}
+                onPress={() => {
+                  if (session) {
+                    router.push(`./fiesta/${selectedEvent.id}`);
+                  } else {
+                    setModalLoginRequerido(true);
+                  }
+                }}
+              >
+                <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
+              </TouchableOpacity>
+            </View>
           </>
         )}
       </Animated.View>
 
-      {/* Modal de Filtros */}
+      {/* Modal de Filtros (tipo, BYOB, cover) */}
       <Modal visible={modalFiltros} transparent animationType="slide" onRequestClose={() => setModalFiltros(false)}>
         <View style={styles.filtrosOverlay}>
           <View style={styles.filtrosSheet}>
@@ -369,13 +504,15 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(26, 26, 46, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
     elevation: 6,
     zIndex: 10,
   },
@@ -392,34 +529,36 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: 'rgba(26, 26, 46, 0.9)',
     borderRadius: 18,
     paddingHorizontal: 14,
     height: 48,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 5,
   },
-  searchIcon: { fontSize: 16, marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 15, color: '#1c1c1e' },
+  searchInput: { flex: 1, fontSize: 15, color: '#fff' },
   filterButton: {
     marginLeft: 10,
     width: 48,
     height: 48,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 59, 48, 0.9)',
+    backgroundColor: 'rgba(26, 26, 46, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 5,
   },
-  filterButtonActive: { backgroundColor: '#ff3b30' },
-  filterIcon: { fontSize: 18 },
+  filterButtonActive: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
   filterDot: {
     position: 'absolute',
     top: 6,
@@ -428,115 +567,179 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 5,
     backgroundColor: '#fff',
-    borderWidth: 1.5,
+  },
+
+  tiempoChipsWrapper: {
+    position: 'absolute',
+    top: 116,
+    left: 0,
+    right: 0,
+  },
+  tiempoChipsContent: {
+    paddingLeft: 74,
+    paddingRight: 16,
+    gap: 8,
+  },
+  tiempoChip: {
+    backgroundColor: 'rgba(26, 26, 46, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  tiempoChipActivo: {
+    backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
+  tiempoChipText: { color: '#c9c9e0', fontSize: 12, fontWeight: '600' },
+  tiempoChipTextActivo: { color: '#fff' },
+
   counterBadge: {
     position: 'absolute',
-    top: 118,
+    top: 164,
     left: 74,
-    backgroundColor: 'rgba(28, 28, 30, 0.85)',
+    backgroundColor: 'rgba(26, 26, 46, 0.85)',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   counterText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
-  // 🔥 Área táctil invisible más grande alrededor del pin
-  markerHitArea: {
-    width: 64,
-    height: 64,
+  // 🔥 Pin simple estilo "drop pin" clásico: círculo sólido + colita,
+  // un solo color por evento, sin emoji ni efectos extra.
+  pinWrapper: {
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
   },
-  markerWrapper: {
-  alignItems: 'center',
-  justifyContent: 'flex-end',
-},
-markerContainer: {
-  width: 30,
-  height: 30,
-  borderRadius: 17,
-  backgroundColor: '#fff',
-  borderWidth: 3,
-  borderColor: '#ff3b30',
-  alignItems: 'center',
-  justifyContent: 'center',
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 3 },
-  shadowOpacity: 0.3,
-  shadowRadius: 3,
-  elevation: 6,
-},
-markerEmoji: {
-  fontSize: 16,
-  textAlign: 'center',
-},
-markerColita: {
-  width: 0,
-  height: 0,
-  borderLeftWidth: 5,
-  borderRightWidth: 5,
-  borderTopWidth: 7,
-  borderLeftColor: 'transparent',
-  borderRightColor: 'transparent',
-  borderTopColor: '#ff3b30',
-  marginTop: -1,
-},
+  pinHead: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 3,
+    borderColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  pinTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 9,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    marginTop: -2,
+  },
 
   detailCard: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#1c1c1e',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    paddingBottom: 40,
+    backgroundColor: '#151525',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
-    maxHeight: SCREEN_HEIGHT * 0.45,
+    shadowOffset: { width: 0, height: -6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    elevation: 12,
+    maxHeight: SCREEN_HEIGHT * 0.52,
     zIndex: 10,
+  },
+  detailBanner: {
+    height: 140,
+    padding: 18,
+    justifyContent: 'flex-end',
   },
   closeButton: {
     position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    top: 14,
+    right: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 11,
   },
-  closeButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  cardTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginBottom: 6, paddingRight: 40 },
-  cardDate: { color: '#ff3b30', fontSize: 14, fontWeight: '600', marginBottom: 6 },
-  cardDescription: { color: '#8e8e93', fontSize: 14, marginBottom: 8, lineHeight: 20 },
-  cardCoverText: { color: '#fff', fontSize: 14, fontWeight: 'bold', marginBottom: 16 },
-  attendButton: { backgroundColor: '#ff3b30', borderRadius: 16, paddingVertical: 15, alignItems: 'center' },
+  detailBannerEmoji: {
+    fontSize: 40,
+    marginBottom: 6,
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
+  detailBannerTitle: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+    paddingRight: 30,
+  },
+  detailBody: {
+    padding: 20,
+    paddingBottom: 36,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 10,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  chipText: { color: '#c9c9e0', fontSize: 12, fontWeight: '600' },
+  chipCover: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: 'rgba(255,59,48,0.4)' },
+  chipCoverText: { color: '#ff6b60' },
+  attendButton: {
+    backgroundColor: '#ff3b30',
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 14,
+    shadowColor: '#ff3b30',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
   attendButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
   // Modal de filtros
   filtrosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  filtrosSheet: { backgroundColor: '#1c1c1e', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
+  filtrosSheet: { backgroundColor: '#151525', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
   filtrosHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   filtrosTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
   filtrosLabel: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 10 },
   filtrosTiposRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  filtroChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: '#2c2c2e', borderWidth: 1, borderColor: '#3a3a3c' },
+  filtroChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   filtroChipActivo: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: '#ff3b30' },
-  filtroChipText: { color: '#8e8e93', fontSize: 13, fontWeight: '600' },
+  filtroChipText: { color: '#8a8aa3', fontSize: 13, fontWeight: '600' },
   filtroChipTextActivo: { color: '#ff3b30' },
-  filtrosSwitchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#2c2c2e', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 10 },
+  filtrosSwitchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 10 },
   filtrosSwitchLabel: { color: '#fff', fontSize: 15 },
   filtrosBotonesRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  filtrosLimpiarBtn: { flex: 1, backgroundColor: '#2c2c2e', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
+  filtrosLimpiarBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   filtrosLimpiarText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   filtrosAplicarBtn: { flex: 1, backgroundColor: '#ff3b30', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   filtrosAplicarText: { color: '#fff', fontSize: 15, fontWeight: '700' },
