@@ -40,8 +40,6 @@ const HORAS_VISIBLE_DESPUES = 5;
 type FiltroTipo = 'todos' | 'Antro' | 'Callejoneada' | 'Norteño';
 type FiltroTiempo = 'hoy' | 'semana' | 'mes' | 'todos';
 
-// Mismas paletas "pintura líquida" que en chats/historial, para que el
-// banner del mapa se sienta parte de la misma familia visual de la app.
 const PALETAS = [
   ['#0FC2C0', '#F4D35E', '#EDEEC9'],
   ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
@@ -57,11 +55,6 @@ const paletaParaId = (id: string) => {
   return PALETAS[hash % PALETAS.length];
 };
 
-// -----------------------------------------------------------------------
-// Estilo de mapa oscuro premium (tipo Uber de noche): calles en grises
-// oscuros, agua azul marino profundo, POIs comerciales ocultos para que
-// no distraigan de los pines de fiestas.
-// -----------------------------------------------------------------------
 const MAPA_ESTILO_OSCURO = [
   { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
@@ -305,7 +298,6 @@ export default function IndexScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* 🔥 Chips de filtro por tiempo, siempre visibles, sin entrar al modal */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -337,7 +329,11 @@ export default function IndexScreen() {
         ]}
       >
         {selectedEvent && (
-          <>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            contentContainerStyle={styles.detailScrollContent}
+          >
             <LinearGradient
               colors={[colorBannerA, colorBannerB, colorBannerC]}
               start={{ x: 0.1, y: 0 }}
@@ -416,11 +412,10 @@ export default function IndexScreen() {
                 <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
               </TouchableOpacity>
             </View>
-          </>
+          </ScrollView>
         )}
       </Animated.View>
 
-      {/* Modal de Filtros (tipo, BYOB, cover) */}
       <Modal visible={modalFiltros} transparent animationType="slide" onRequestClose={() => setModalFiltros(false)}>
         <View style={styles.filtrosOverlay}>
           <View style={styles.filtrosSheet}>
@@ -608,8 +603,6 @@ const styles = StyleSheet.create({
   },
   counterText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
-  // 🔥 Pin simple estilo "drop pin" clásico: círculo sólido + colita,
-  // un solo color por evento, sin emoji ni efectos extra.
   pinWrapper: {
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -637,6 +630,9 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
 
+  // 🔥 detailCard ahora define un maxHeight que deja espacio real para la
+  // tab bar (evita que el botón final quede oculto/cortado), y su contenido
+  // vive dentro de un ScrollView por si en pantallas chicas no alcanza.
   detailCard: {
     position: 'absolute',
     bottom: 0,
@@ -651,8 +647,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.4,
     shadowRadius: 14,
     elevation: 12,
-    maxHeight: SCREEN_HEIGHT * 0.52,
+    maxHeight: SCREEN_HEIGHT * 0.6,
     zIndex: 10,
+  },
+  detailScrollContent: {
+    paddingBottom: Platform.OS === 'ios' ? 100 : 84, // 🔥 espacio para que no lo tape la tab bar
   },
   detailBanner: {
     height: 140,
@@ -689,7 +688,6 @@ const styles = StyleSheet.create({
   },
   detailBody: {
     padding: 20,
-    paddingBottom: 36,
   },
   chipsRow: {
     flexDirection: 'row',
@@ -725,7 +723,6 @@ const styles = StyleSheet.create({
   },
   attendButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
-  // Modal de filtros
   filtrosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   filtrosSheet: { backgroundColor: '#151525', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
   filtrosHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },

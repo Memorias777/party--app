@@ -41,14 +41,26 @@ function TabBackgroundVivo({ focused, paletaIndex }: { focused: boolean; paletaI
     return () => loop.stop();
   }, [focused, shift]);
 
-  const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [-14, 14] });
+  // 🔥 El gradiente interno mide el DOBLE del contenedor (120% de ancho extra
+  // a cada lado) y solo se desplaza dentro de ese margen, así el borde del
+  // gradiente nunca llega a quedar visible dentro del recorte del tab.
+  const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [-10, 10] });
   const colores = PALETAS_TAB[paletaIndex % PALETAS_TAB.length];
 
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { opacity, borderRadius: 18, overflow: 'hidden' }]}>
-      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: -20,
+          right: -20,
+          transform: [{ translateX }],
+        }}
+      >
         <LinearGradient
-          colors={[colores[0], colores[1], colores[2]] as any}
+          colors={[colores[0], colores[1], colores[2], colores[1], colores[0]] as any}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFill}
@@ -77,8 +89,8 @@ function AnimatedTabIcon({
     Animated.spring(scale, {
       toValue: focused ? 1.08 : 1,
       useNativeDriver: true,
-      bounciness: 8,
-      speed: 12,
+      bounciness: 10,
+      speed: 14,
     }).start();
   }, [focused, scale]);
 
@@ -86,7 +98,7 @@ function AnimatedTabIcon({
     <View style={styles.tabItemWrap}>
       <TabBackgroundVivo focused={focused} paletaIndex={paletaIndex} />
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name={name} size={23} color={focused ? '#fff' : '#6c6c8a'} />
+        <Ionicons name={name} size={22} color={focused ? '#fff' : '#6c6c8a'} />
       </Animated.View>
     </View>
   );
