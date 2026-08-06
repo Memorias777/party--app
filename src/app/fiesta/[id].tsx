@@ -10,12 +10,78 @@ import {
   Platform,
   KeyboardAvoidingView,
   Linking,
+  Animated,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../supabase.js';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '../../components/Toast';
 import ConfirmModal from '../../components/ConfirmModal';
+
+// Misma familia de paletas "pintura líquida" del resto de la app —
+// cada fiesta usa siempre la misma, coherente con el mapa y la lista.
+const PALETAS = [
+  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
+  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
+  ['#7B9E43', '#F4D35E', '#3D2B1F'],
+  ['#118AB2', '#06D6A0', '#FFD166'],
+  ['#3A86FF', '#8AC926', '#FFCA3A'],
+  ['#5EC6C0', '#2D3142', '#F4D35E'],
+];
+
+const paletaParaId = (id: string) => {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return PALETAS[hash % PALETAS.length];
+};
+
+// -----------------------------------------------------------------------
+// Header animado: gradiente en movimiento infinito con el color propio
+// de esta fiesta (mismo patrón "ola sin cortes" del resto de la app).
+// -----------------------------------------------------------------------
+function HeaderVivo({ colores }: { colores: string[] }) {
+  const shift = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shift, { toValue: 1, duration: 5000, useNativeDriver: true }),
+        Animated.timing(shift, { toValue: 0, duration: 5000, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shift]);
+
+  const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [-40, 40] });
+
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: -60,
+          right: -60,
+          transform: [{ translateX }],
+        }}
+      >
+        <LinearGradient
+          colors={[colores[0], colores[1], colores[2], colores[1], colores[0]] as any}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <LinearGradient
+        colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.5)']}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
 
 export default function FiestaDetailScreen() {
   const { id } = useLocalSearchParams();
@@ -145,7 +211,6 @@ export default function FiestaDetailScreen() {
     }
   };
 
-  // 🔥 Ahora un mensaje puede llevar opcionalmente un link de foto (avisos)
   const enviarMensaje = async () => {
     const contenido = nuevoMensaje.trim();
     const foto = linkFotoAviso.trim();
@@ -207,6 +272,9 @@ export default function FiestaDetailScreen() {
     );
   }
 
+  const coloresFiesta = paletaParaId(String(id));
+  const [colorAcento] = coloresFiesta;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -216,6 +284,8 @@ export default function FiestaDetailScreen() {
       <Stack.Screen options={{ headerShown: false }} />
 
       <View style={styles.header}>
+        <HeaderVivo colores={coloresFiesta} />
+
         <TouchableOpacity style={styles.closeIcon} onPress={() => router.back()}>
           <Ionicons name="chevron-down" size={32} color="#fff" />
         </TouchableOpacity>
@@ -236,9 +306,6 @@ export default function FiestaDetailScreen() {
         )}
       </View>
 
-      {/* 🔥 El selector de tabs (General / Avisos) ahora vive FUERA del
-          ScrollView, así siempre está visible sin importar cuánto scrolleen
-          los mensajes — ya no hay que subir hasta arriba para cambiarlo. */}
       {esParticipante && (
         <View style={styles.tabWrapper}>
           <View style={styles.tabContainer}>
@@ -274,7 +341,7 @@ export default function FiestaDetailScreen() {
           }
         }}
       >
-        <View style={styles.infoCard}>
+        <View style={[styles.infoCard, { borderColor: colorAcento + '55' }]}>
           <Text style={styles.infoLugar}>📍 {evento.lugar}</Text>
           <Text style={styles.infoDetalles}>
             {evento.tipo_fiesta ? `${evento.tipo_fiesta} · ` : ''}
@@ -285,14 +352,18 @@ export default function FiestaDetailScreen() {
 
         {!esParticipante ? (
           <View style={styles.joinContainer}>
-            <View style={styles.lockIconContainer}>
-              <Ionicons name="lock-closed" size={40} color="#ff3b30" />
+            <View style={[styles.lockIconContainer, { backgroundColor: colorAcento + '22' }]}>
+              <Ionicons name="lock-closed" size={40} color={colorAcento} />
             </View>
             <Text style={styles.joinTitle}>Chat Privado</Text>
             <Text style={styles.joinText}>
               Únete a esta fiesta para confirmar tu asistencia, ver los mensajes y enterarte de los avisos.
             </Text>
-            <TouchableOpacity style={styles.joinButton} onPress={() => setModalUnirse(true)} disabled={uniendo}>
+            <TouchableOpacity
+              style={[styles.joinButton, { backgroundColor: colorAcento }]}
+              onPress={() => setModalUnirse(true)}
+              disabled={uniendo}
+            >
               {uniendo ? <ActivityIndicator color="#fff" /> : <Text style={styles.joinButtonText}>🥳 Unirme a la Fiesta</Text>}
             </TouchableOpacity>
           </View>
@@ -310,7 +381,7 @@ export default function FiestaDetailScreen() {
                 const esMio = msg.perfil_id === userId;
                 return (
                   <View key={msg.id || index} style={[styles.burbujaContenedor, esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena]}>
-                    <View style={[styles.burbuja, esMio ? styles.burbujaMia : styles.burbujaAjena]}>
+                    <View style={[styles.burbuja, esMio ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 } : styles.burbujaAjena]}>
                       {msg.link_foto ? (
                         <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.85}>
                           <View style={styles.fotoPreview}>
@@ -349,7 +420,7 @@ export default function FiestaDetailScreen() {
                 onPress={() => setMostrarInputFoto((v) => !v)}
                 activeOpacity={0.7}
               >
-                <Ionicons name="image-outline" size={22} color={mostrarInputFoto ? '#ff3b30' : '#8e8e93'} />
+                <Ionicons name="image-outline" size={22} color={mostrarInputFoto ? colorAcento : '#8e8e93'} />
               </TouchableOpacity>
             )}
             <TextInput
@@ -361,7 +432,7 @@ export default function FiestaDetailScreen() {
               multiline
             />
             <TouchableOpacity
-              style={[styles.sendButton, (!nuevoMensaje.trim() && !linkFotoAviso.trim()) || enviando ? { opacity: 0.5 } : null]}
+              style={[styles.sendButton, { backgroundColor: colorAcento }, (!nuevoMensaje.trim() && !linkFotoAviso.trim()) || enviando ? { opacity: 0.5 } : null]}
               onPress={enviarMensaje}
               disabled={(!nuevoMensaje.trim() && !linkFotoAviso.trim()) || enviando}
             >
@@ -387,45 +458,51 @@ export default function FiestaDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
-  loadingContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: Platform.OS === 'ios' ? 50 : 20, paddingHorizontal: 16, paddingBottom: 16, backgroundColor: '#1c1c1e', borderBottomWidth: 1, borderBottomColor: '#2c2c2e' },
+  container: { flex: 1, backgroundColor: '#0d0d18' },
+  loadingContainer: { flex: 1, backgroundColor: '#0d0d18', justifyContent: 'center', alignItems: 'center' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    overflow: 'hidden',
+  },
   closeIcon: { padding: 4 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', flex: 1, textAlign: 'center' },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', flex: 1, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.4)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   body: { flex: 1 },
-  infoCard: { backgroundColor: '#1c1c1e', margin: 16, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#2c2c2e' },
+  infoCard: { backgroundColor: '#16162a', margin: 16, borderRadius: 16, padding: 16, borderWidth: 1 },
   infoLugar: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
-  infoDetalles: { color: '#8e8e93', fontSize: 14 },
+  infoDetalles: { color: '#8a8aa3', fontSize: 14 },
   joinContainer: { alignItems: 'center', paddingHorizontal: 30, marginTop: 40 },
-  lockIconContainer: { backgroundColor: '#2c2c2e', width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  lockIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   joinTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
-  joinText: { color: '#8e8e93', fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 22 },
-  joinButton: { backgroundColor: '#ff3b30', width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
+  joinText: { color: '#8a8aa3', fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 22 },
+  joinButton: { width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
   joinButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  // 🔥 Tab fijo (ya no scrollea con los mensajes)
-  tabWrapper: { backgroundColor: '#000', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#1c1c1e' },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#1c1c1e', borderRadius: 12, padding: 4 },
+  tabWrapper: { backgroundColor: '#0d0d18', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#16162a' },
+  tabContainer: { flexDirection: 'row', backgroundColor: '#16162a', borderRadius: 12, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
-  tabActive: { backgroundColor: '#2c2c2e' },
-  tabText: { color: '#8e8e93', fontSize: 14, fontWeight: '600' },
+  tabActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
+  tabText: { color: '#8a8aa3', fontSize: 14, fontWeight: '600' },
   tabTextActive: { color: '#fff' },
   chatArea: { paddingHorizontal: 16 },
   chatPlaceholder: { alignItems: 'center', justifyContent: 'center', marginTop: 40 },
-  placeholderText: { color: '#8e8e93', textAlign: 'center', marginTop: 12, lineHeight: 22 },
+  placeholderText: { color: '#8a8aa3', textAlign: 'center', marginTop: 12, lineHeight: 22 },
   burbujaContenedor: { maxWidth: '80%', marginBottom: 12 },
   burbujaContenedorMia: { alignSelf: 'flex-end', alignItems: 'flex-end' },
   burbujaContenedorAjena: { alignSelf: 'flex-start', alignItems: 'flex-start' },
   burbuja: { padding: 12, borderRadius: 16 },
-  burbujaMia: { backgroundColor: '#ff3b30', borderBottomRightRadius: 4 },
-  burbujaAjena: { backgroundColor: '#2c2c2e', borderBottomLeftRadius: 4 },
+  burbujaAjena: { backgroundColor: '#22223a', borderBottomLeftRadius: 4 },
   mensajeTexto: { color: '#fff', fontSize: 15 },
-  horaTexto: { color: '#8e8e93', fontSize: 11, marginTop: 4, marginHorizontal: 4 },
+  horaTexto: { color: '#6c6c8a', fontSize: 11, marginTop: 4, marginHorizontal: 4 },
   fotoPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6 },
   fotoPreviewText: { color: '#fff', fontSize: 13, fontWeight: '600', marginLeft: 6 },
-  inputWrapper: { backgroundColor: '#1c1c1e', borderTopWidth: 1, borderTopColor: '#2c2c2e' },
-  inputFoto: { backgroundColor: '#2c2c2e', color: '#fff', borderRadius: 12, marginHorizontal: 16, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13 },
+  inputWrapper: { backgroundColor: '#16162a', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
+  inputFoto: { backgroundColor: '#22223a', color: '#fff', borderRadius: 12, marginHorizontal: 16, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13 },
   inputContainer: { flexDirection: 'row', padding: 16, paddingBottom: Platform.OS === 'ios' ? 30 : 16, alignItems: 'flex-end' },
   fotoButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
-  inputBox: { flex: 1, backgroundColor: '#2c2c2e', color: '#fff', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, marginRight: 10, maxHeight: 100 },
-  sendButton: { backgroundColor: '#ff3b30', width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  inputBox: { flex: 1, backgroundColor: '#22223a', color: '#fff', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, marginRight: 10, maxHeight: 100 },
+  sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
 });

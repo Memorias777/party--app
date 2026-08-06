@@ -1,21 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../supabase';
 
-// -----------------------------------------------------------------------
-// Paletas inspiradas en pintura líquida / marmoleado (turquesa, verdes,
-// amarillos, blancos, cafés) — cada fiesta usa una consistentemente según
-// su id, así se ve "viva" y distinta sin depender de un flyer real todavía.
-// -----------------------------------------------------------------------
 const PALETAS = [
-  ['#0FC2C0', '#F4D35E', '#EDEEC9'],   // turquesa + amarillo + crema
-  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],   // turquesa + blanco + naranja
-  ['#7B9E43', '#F4D35E', '#3D2B1F'],   // verde oliva + amarillo + café
-  ['#118AB2', '#06D6A0', '#FFD166'],   // azul + verde menta + amarillo
-  ['#3A86FF', '#8AC926', '#FFCA3A'],   // azul + verde + amarillo vivo
-  ['#5EC6C0', '#2D3142', '#F4D35E'],   // turquesa + carbón + amarillo
+  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
+  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
+  ['#7B9E43', '#F4D35E', '#3D2B1F'],
+  ['#118AB2', '#06D6A0', '#FFD166'],
+  ['#3A86FF', '#8AC926', '#FFCA3A'],
+  ['#5EC6C0', '#2D3142', '#F4D35E'],
 ];
 
 const paletaParaId = (id: string) => {
@@ -23,6 +18,62 @@ const paletaParaId = (id: string) => {
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   return PALETAS[hash % PALETAS.length];
 };
+
+// -----------------------------------------------------------------------
+// Banner animado tipo "pintura líquida en movimiento infinito": el
+// gradiente interno es más ancho que la card, se desplaza en loop y
+// nunca muestra bordes/cortes (mismo patrón que usamos en la tab bar).
+// -----------------------------------------------------------------------
+function BannerVivo({ colores, apagado }: { colores: string[]; apagado: boolean }) {
+  const shift = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shift, { toValue: 1, duration: 4200, useNativeDriver: true }),
+        Animated.timing(shift, { toValue: 0, duration: 4200, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shift]);
+
+  const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [-30, 30] });
+
+  return (
+    <View style={[styles.banner, apagado && styles.bannerApagado]}>
+      <Animated.View
+        style={{
+          position: 'absolute',
+          top: 0,
+          bottom: 0,
+          left: -50,
+          right: -50,
+          transform: [{ translateX }],
+        }}
+      >
+        <LinearGradient
+          colors={[colores[0], colores[1], colores[2], colores[1], colores[0]] as any}
+          start={{ x: 0.1, y: 0 }}
+          end={{ x: 0.9, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <LinearGradient
+        colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.6, y: 0.8 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <LinearGradient
+        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
+        start={{ x: 0.3, y: 0.2 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </View>
+  );
+}
 
 export default function ChatsScreen() {
   const router = useRouter();
@@ -72,7 +123,7 @@ export default function ChatsScreen() {
     const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
     const asistentes = item.participantes?.[0]?.count || 1;
     const yaPaso = new Date(item.fecha_hora).getTime() < Date.now();
-    const [colorA, colorB, colorC] = paletaParaId(String(item.id));
+    const colores = paletaParaId(String(item.id));
 
     return (
       <TouchableOpacity
@@ -80,39 +131,23 @@ export default function ChatsScreen() {
         activeOpacity={0.85}
         onPress={() => router.push(`../fiesta/${item.id}`)}
       >
-        <LinearGradient
-          colors={[colorA, colorB, colorC]}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={[styles.banner, yaPaso && styles.bannerApagado]}
-        >
-          {/* Capa de manchas suaves para dar textura tipo "pintura" */}
-          <LinearGradient
-            colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.6, y: 0.8 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
-            start={{ x: 0.3, y: 0.2 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-
-          <View style={styles.bannerTopRow}>
-            {yaPaso && (
-              <View style={styles.badgeFinalizada}>
-                <Text style={styles.badgeFinalizadaText}>Finalizada</Text>
+        <View style={{ overflow: 'hidden', borderTopLeftRadius: 22, borderTopRightRadius: 22 }}>
+          <BannerVivo colores={colores} apagado={yaPaso} />
+          <View style={styles.bannerContentOverlay} pointerEvents="box-none">
+            <View style={styles.bannerTopRow}>
+              {yaPaso && (
+                <View style={styles.badgeFinalizada}>
+                  <Text style={styles.badgeFinalizadaText}>Finalizada</Text>
+                </View>
+              )}
+              <View style={styles.asistentesBadge}>
+                <Text style={styles.asistentesBadgeText}>👤 {asistentes}</Text>
               </View>
-            )}
-            <View style={styles.asistentesBadge}>
-              <Text style={styles.asistentesBadgeText}>👤 {asistentes}</Text>
             </View>
-          </View>
 
-          <Text style={styles.bannerEmoji}>{item.emoji || '🥳'}</Text>
-        </LinearGradient>
+            <Text style={styles.bannerEmoji}>{item.emoji || '🥳'}</Text>
+          </View>
+        </View>
 
         <View style={styles.cardInfo}>
           <Text style={styles.cardTitle} numberOfLines={1}>{item.titulo}</Text>
@@ -174,11 +209,18 @@ const styles = StyleSheet.create({
   },
   banner: {
     height: 150,
-    justifyContent: 'space-between',
-    padding: 14,
   },
   bannerApagado: {
     opacity: 0.55,
+  },
+  bannerContentOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'space-between',
+    padding: 14,
   },
   bannerTopRow: {
     flexDirection: 'row',
