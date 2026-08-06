@@ -1,21 +1,22 @@
-import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
   Animated,
   Dimensions,
+  Image,
   Modal,
   Platform,
   ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, router } from 'expo-router';
 import { supabase } from '../../../supabase';
-import { Ionicons } from '@expo/vector-icons';
 import ConfirmModal from '../../components/ConfirmModal';
 
 export interface Evento {
@@ -32,6 +33,7 @@ export interface Evento {
   descripcion?: string;
   tipo_fiesta?: string;
   info_cover?: string;
+  link_logo?: string;
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -249,7 +251,13 @@ export default function IndexScreen() {
               anchor={{ x: 0.5, y: 1 }}
             >
               <View style={styles.pinWrapper}>
-                <View style={[styles.pinHead, { backgroundColor: colorPin }]} />
+                {ev.link_logo ? (
+                  <View style={[styles.pinHeadWithLogo, { borderColor: colorPin }]}>
+                    <Image source={{ uri: ev.link_logo }} style={styles.pinLogoImage} />
+                  </View>
+                ) : (
+                  <View style={[styles.pinHead, { backgroundColor: colorPin }]} />
+                )}
                 <View style={[styles.pinTail, { borderTopColor: colorPin }]} />
               </View>
             </Marker>
@@ -356,12 +364,18 @@ export default function IndexScreen() {
               <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
                 <Ionicons name="close" size={18} color="#fff" />
               </TouchableOpacity>
-
-              <Text style={styles.detailBannerEmoji}>{selectedEvent.emoji || '🥳'}</Text>
-              <Text style={styles.detailBannerTitle} numberOfLines={2}>{selectedEvent.titulo}</Text>
             </LinearGradient>
 
+            <View style={styles.detailAvatarWrap}>
+              {selectedEvent.link_logo ? (
+                <Image source={{ uri: selectedEvent.link_logo }} style={styles.detailAvatarImage} />
+              ) : (
+                <Text style={styles.detailAvatarEmoji}>{selectedEvent.emoji || '🥳'}</Text>
+              )}
+            </View>
+
             <View style={styles.detailBody}>
+              <Text style={styles.detailTitleCentered}>{selectedEvent.titulo}</Text>
               <View style={styles.chipsRow}>
                 <View style={styles.chip}>
                   <Ionicons name="calendar" size={13} color="#c9c9e0" />
@@ -619,6 +633,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 8,
   },
+  pinHeadWithLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#fff',
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1c1c1e',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  pinLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+  },
   pinTail: {
     width: 0,
     height: 0,
@@ -654,9 +689,42 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 100 : 84, // 🔥 espacio para que no lo tape la tab bar
   },
   detailBanner: {
-    height: 140,
+    height: 110,
     padding: 18,
     justifyContent: 'flex-end',
+  },
+  detailAvatarWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: '#1c1c2e',
+    borderWidth: 3,
+    borderColor: '#151525',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginTop: -38,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+    zIndex: 12,
+  },
+  detailAvatarImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+  },
+  detailAvatarEmoji: {
+    fontSize: 36,
+  },
+  detailTitleCentered: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 14,
   },
   closeButton: {
     position: 'absolute',

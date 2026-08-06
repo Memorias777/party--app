@@ -1,23 +1,26 @@
-import React, { useEffect, useState, useRef } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Animated,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
   StyleSheet,
-  View,
   Text,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-  Platform,
-  KeyboardAvoidingView,
-  Linking,
-  Animated,
+  View
 } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { supabase } from '../../../supabase.js';
-import { Ionicons } from '@expo/vector-icons';
-import { useToast } from '../../components/Toast';
+import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
+import { useToast } from '../../components/Toast';
+import { seleccionarYSubirImagen } from '../../utils/uploadImage';
 
 // Misma familia de paletas "pintura líquida" del resto de la app —
 // cada fiesta usa siempre la misma, coherente con el mapa y la lista.
@@ -99,13 +102,21 @@ export default function FiestaDetailScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
-  const [linkFotoAviso, setLinkFotoAviso] = useState('');
-  const [mostrarInputFoto, setMostrarInputFoto] = useState(false);
+  const [fotoAdjuntaUrl, setFotoAdjuntaUrl] = useState<string | null>(null);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [esParticipante, setEsParticipante] = useState(false);
   const [uniendo, setUniendo] = useState(false);
   const [asistentes, setAsistentes] = useState(1);
   const [modalUnirse, setModalUnirse] = useState(false);
+
+  // Estados para gestión de mensajes (menú contextual, editar, borrar)
+  const [mensajeSeleccionado, setMensajeSeleccionado] = useState<any | null>(null);
+  const [modalMenuMsg, setModalMenuMsg] = useState(false);
+  const [modalEditarMsg, setModalEditarMsg] = useState(false);
+  const [textoEditar, setTextoEditar] = useState('');
+  const [modalConfirmBorrarMsg, setModalConfirmBorrarMsg] = useState(false);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
 
   useEffect(() => {
     const iniciarSala = async () => {
@@ -174,14 +185,24 @@ export default function FiestaDetailScreen() {
       .channel(nombreCanal)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'mensajes', filter: `evento_id=eq.${id}` },
-        (payload) => {
-          const mensajeNuevo = payload.new;
-          if (mensajeNuevo.tipo_chat === tabActual) {
-            setMensajes((prevMensajes) => {
-              if (prevMensajes.some((m) => m.id === mensajeNuevo.id)) return prevMensajes;
-              return [...prevMensajes, mensajeNuevo];
-            });
+        { event: '*', schema: 'public', table: 'mensajes', filter: `evento_id=eq.${id}` },
+        (payload: any) => {
+          if (payload.eventType === 'INSERT') {
+            const mensajeNuevo = payload.new;
+            if (mensajeNuevo.tipo_chat === tabActual) {
+              setMensajes((prevMensajes) => {
+                if (prevMensajes.some((m) => m.id === mensajeNuevo.id)) return prevMensajes;
+                return [...prevMensajes, mensajeNuevo];
+              });
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const mensajeEditado = payload.new;
+            setMensajes((prevMensajes) =>
+              prevMensajes.map((m) => (m.id === mensajeEditado.id ? mensajeEditado : m))
+            );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setMensajes((prevMensajes) => prevMensajes.filter((m) => m.id !== deletedId));
           }
         }
       )
@@ -211,9 +232,24 @@ export default function FiestaDetailScreen() {
     }
   };
 
+  const handleSubirFotoAviso = async () => {
+    try {
+      setSubiendoFoto(true);
+      const url = await seleccionarYSubirImagen('fotos-fiestas');
+      if (url) {
+        setFotoAdjuntaUrl(url);
+        showToast('Imagen adjuntada 📷', 'success');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error al seleccionar imagen', 'error');
+    } finally {
+      setSubiendoFoto(false);
+    }
+  };
+
   const enviarMensaje = async () => {
     const contenido = nuevoMensaje.trim();
-    const foto = linkFotoAviso.trim();
+    const foto = fotoAdjuntaUrl;
 
     if (!contenido && !foto) return;
     if (!userId) return;
@@ -240,9 +276,65 @@ export default function FiestaDetailScreen() {
       showToast('Error al enviar mensaje', 'error', error.message);
     } else {
       setNuevoMensaje('');
-      setLinkFotoAviso('');
-      setMostrarInputFoto(false);
+      setFotoAdjuntaUrl(null);
       setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+    }
+  };
+
+  const handleLongPressMensaje = (msg: any) => {
+    const esMio = msg.perfil_id === userId;
+    const esAdmin = evento?.creador_id === userId;
+    if (esMio || esAdmin) {
+      setMensajeSeleccionado(msg);
+      setModalMenuMsg(true);
+    }
+  };
+
+  const abrirModalEditar = () => {
+    if (!mensajeSeleccionado) return;
+    setTextoEditar(mensajeSeleccionado.contenido || '');
+    setModalMenuMsg(false);
+    setModalEditarMsg(true);
+  };
+
+  const guardarEdicionMensaje = async () => {
+    if (!mensajeSeleccionado) return;
+    setGuardandoEdicion(true);
+
+    const { error } = await supabase
+      .from('mensajes')
+      .update({
+        contenido: textoEditar.trim(),
+      })
+      .eq('id', mensajeSeleccionado.id);
+
+    setGuardandoEdicion(false);
+
+    if (error) {
+      showToast('No se pudo editar el mensaje', 'error');
+    } else {
+      showToast('Mensaje actualizado ✏️', 'success');
+      setModalEditarMsg(false);
+      setMensajeSeleccionado(null);
+    }
+  };
+
+  const confirmarBorrarMensaje = () => {
+    setModalMenuMsg(false);
+    setModalConfirmBorrarMsg(true);
+  };
+
+  const borrarMensajeConfirmado = async () => {
+    if (!mensajeSeleccionado) return;
+    setModalConfirmBorrarMsg(false);
+
+    const { error } = await supabase.from('mensajes').delete().eq('id', mensajeSeleccionado.id);
+
+    if (error) {
+      showToast('No se pudo eliminar el mensaje', 'error');
+    } else {
+      showToast('Mensaje eliminado 🗑️', 'success');
+      setMensajeSeleccionado(null);
     }
   };
 
@@ -381,17 +473,18 @@ export default function FiestaDetailScreen() {
                 const esMio = msg.perfil_id === userId;
                 return (
                   <View key={msg.id || index} style={[styles.burbujaContenedor, esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena]}>
-                    <View style={[styles.burbuja, esMio ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 } : styles.burbujaAjena]}>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onLongPress={() => handleLongPressMensaje(msg)}
+                      style={[styles.burbuja, esMio ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 } : styles.burbujaAjena]}
+                    >
                       {msg.link_foto ? (
-                        <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.85}>
-                          <View style={styles.fotoPreview}>
-                            <Ionicons name="image" size={22} color="#fff" />
-                            <Text style={styles.fotoPreviewText}>Ver foto adjunta</Text>
-                          </View>
+                        <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
+                          <Image source={{ uri: msg.link_foto }} style={styles.mensajeImagen} />
                         </TouchableOpacity>
                       ) : null}
                       {msg.contenido ? <Text style={styles.mensajeTexto}>{msg.contenido}</Text> : null}
-                    </View>
+                    </TouchableOpacity>
                     <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
                   </View>
                 );
@@ -403,24 +496,30 @@ export default function FiestaDetailScreen() {
 
       {esParticipante && puedeEscribirEnTabActual && (
         <View style={styles.inputWrapper}>
-          {tabActual === 'avisos' && esAdmin && mostrarInputFoto && (
-            <TextInput
-              style={styles.inputFoto}
-              placeholder="Pega aquí el link de la foto (Google Fotos, Drive, etc.)"
-              placeholderTextColor="#8e8e93"
-              value={linkFotoAviso}
-              onChangeText={setLinkFotoAviso}
-              autoCapitalize="none"
-            />
+          {fotoAdjuntaUrl && (
+            <View style={styles.fotoAdjuntaContainer}>
+              <View style={styles.fotoAdjuntaChip}>
+                <Image source={{ uri: fotoAdjuntaUrl }} style={styles.fotoAdjuntaMinia} />
+                <Text style={styles.fotoAdjuntaText}>Foto adjunta</Text>
+                <TouchableOpacity onPress={() => setFotoAdjuntaUrl(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close-circle" size={20} color="#ff3b30" />
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
           <View style={styles.inputContainer}>
             {tabActual === 'avisos' && esAdmin && (
               <TouchableOpacity
                 style={styles.fotoButton}
-                onPress={() => setMostrarInputFoto((v) => !v)}
+                onPress={handleSubirFotoAviso}
+                disabled={subiendoFoto}
                 activeOpacity={0.7}
               >
-                <Ionicons name="image-outline" size={22} color={mostrarInputFoto ? colorAcento : '#8e8e93'} />
+                {subiendoFoto ? (
+                  <ActivityIndicator size="small" color={colorAcento} />
+                ) : (
+                  <Ionicons name="camera" size={24} color={colorAcento} />
+                )}
               </TouchableOpacity>
             )}
             <TextInput
@@ -432,15 +531,75 @@ export default function FiestaDetailScreen() {
               multiline
             />
             <TouchableOpacity
-              style={[styles.sendButton, { backgroundColor: colorAcento }, (!nuevoMensaje.trim() && !linkFotoAviso.trim()) || enviando ? { opacity: 0.5 } : null]}
+              style={[styles.sendButton, { backgroundColor: colorAcento }, (!nuevoMensaje.trim() && !fotoAdjuntaUrl) || enviando ? { opacity: 0.5 } : null]}
               onPress={enviarMensaje}
-              disabled={(!nuevoMensaje.trim() && !linkFotoAviso.trim()) || enviando}
+              disabled={(!nuevoMensaje.trim() && !fotoAdjuntaUrl) || enviando}
             >
               {enviando ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
             </TouchableOpacity>
           </View>
         </View>
       )}
+
+      {/* Modal Menú Contextual (onLongPress) */}
+      <Modal visible={modalMenuMsg} transparent animationType="fade" onRequestClose={() => setModalMenuMsg(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalMenuMsg(false)}>
+          <View style={styles.menuContainer}>
+            <Text style={styles.menuTitle}>Opciones de mensaje</Text>
+
+            <TouchableOpacity style={styles.menuOption} onPress={abrirModalEditar}>
+              <Ionicons name="pencil" size={20} color="#fff" style={{ marginRight: 12 }} />
+              <Text style={styles.menuOptionText}>Editar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuOption} onPress={confirmarBorrarMensaje}>
+              <Ionicons name="trash-outline" size={20} color="#ff3b30" style={{ marginRight: 12 }} />
+              <Text style={[styles.menuOptionText, { color: '#ff3b30' }]}>Borrar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuCancelButton} onPress={() => setModalMenuMsg(false)}>
+              <Text style={styles.menuCancelText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Modal Editar Mensaje */}
+      <Modal visible={modalEditarMsg} transparent animationType="slide" onRequestClose={() => setModalEditarMsg(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalEditContainer}>
+            <Text style={styles.modalEditTitle}>Editar mensaje</Text>
+
+            <TextInput
+              style={styles.modalEditInput}
+              value={textoEditar}
+              onChangeText={setTextoEditar}
+              multiline
+              placeholder="Escribe el nuevo texto..."
+              placeholderTextColor="#8e8e93"
+              autoFocus
+            />
+
+            <View style={styles.modalEditButtons}>
+              <TouchableOpacity style={styles.modalEditBtnCancel} onPress={() => setModalEditarMsg(false)}>
+                <Text style={styles.modalEditBtnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalEditBtnSave, { backgroundColor: colorAcento }]}
+                onPress={guardarEdicionMensaje}
+                disabled={guardandoEdicion}
+              >
+                {guardandoEdicion ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={styles.modalEditBtnSaveText}>Guardar</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <ConfirmModal
         visible={modalUnirse}
@@ -452,6 +611,15 @@ export default function FiestaDetailScreen() {
           setModalUnirse(false);
           unirseAFiesta();
         }}
+      />
+
+      <ConfirmModal
+        visible={modalConfirmBorrarMsg}
+        title="Borrar mensaje 🗑️"
+        message="¿Estás seguro de que deseas eliminar este mensaje? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        onCancel={() => setModalConfirmBorrarMsg(false)}
+        onConfirm={borrarMensajeConfirmado}
       />
     </KeyboardAvoidingView>
   );
@@ -497,12 +665,29 @@ const styles = StyleSheet.create({
   burbujaAjena: { backgroundColor: '#22223a', borderBottomLeftRadius: 4 },
   mensajeTexto: { color: '#fff', fontSize: 15 },
   horaTexto: { color: '#6c6c8a', fontSize: 11, marginTop: 4, marginHorizontal: 4 },
-  fotoPreview: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6 },
-  fotoPreviewText: { color: '#fff', fontSize: 13, fontWeight: '600', marginLeft: 6 },
+  mensajeImagen: { width: 220, height: 140, borderRadius: 12, marginBottom: 6, resizeMode: 'cover' },
   inputWrapper: { backgroundColor: '#16162a', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
-  inputFoto: { backgroundColor: '#22223a', color: '#fff', borderRadius: 12, marginHorizontal: 16, marginTop: 10, paddingHorizontal: 14, paddingVertical: 10, fontSize: 13 },
+  fotoAdjuntaContainer: { paddingHorizontal: 16, paddingTop: 10 },
+  fotoAdjuntaChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#22223a', padding: 6, paddingRight: 10, borderRadius: 10, alignSelf: 'flex-start' },
+  fotoAdjuntaMinia: { width: 32, height: 32, borderRadius: 6, marginRight: 8 },
+  fotoAdjuntaText: { color: '#fff', fontSize: 13, fontWeight: '600', marginRight: 10 },
   inputContainer: { flexDirection: 'row', padding: 16, paddingBottom: Platform.OS === 'ios' ? 30 : 16, alignItems: 'flex-end' },
   fotoButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
   inputBox: { flex: 1, backgroundColor: '#22223a', color: '#fff', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, marginRight: 10, maxHeight: 100 },
   sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  menuContainer: { backgroundColor: '#1c1c2e', borderRadius: 20, width: '100%', maxWidth: 320, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  menuTitle: { color: '#8a8aa3', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 16, textAlign: 'center' },
+  menuOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
+  menuOptionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  menuCancelButton: { marginTop: 14, paddingTop: 10, alignItems: 'center' },
+  menuCancelText: { color: '#8a8aa3', fontSize: 15, fontWeight: '600' },
+  modalEditContainer: { backgroundColor: '#1c1c2e', borderRadius: 20, width: '100%', maxWidth: 340, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  modalEditTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 16 },
+  modalEditInput: { backgroundColor: '#2a2a3e', color: '#fff', borderRadius: 14, padding: 14, fontSize: 15, minHeight: 80, textAlignVertical: 'top', marginBottom: 20 },
+  modalEditButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  modalEditBtnCancel: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10 },
+  modalEditBtnCancelText: { color: '#8a8aa3', fontSize: 15, fontWeight: '600' },
+  modalEditBtnSave: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, minWidth: 90, alignItems: 'center' },
+  modalEditBtnSaveText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
 });

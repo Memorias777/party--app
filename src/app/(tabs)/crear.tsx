@@ -1,23 +1,25 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Platform,
+  ScrollView,
   StyleSheet,
-  View,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
-  Switch,
-  ScrollView,
-  Platform,
-  ActivityIndicator,
-  FlatList,
+  View,
 } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../../supabase';
-import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { useToast } from '../../components/Toast';
 import ConfirmModal from '../../components/ConfirmModal';
+import { useToast } from '../../components/Toast';
+import { seleccionarYSubirImagen } from '../../utils/uploadImage';
 
 const TIPOS_FIESTA = [
   { label: 'Antro', emoji: '🪩' },
@@ -177,7 +179,11 @@ function ListaFiestas({
               onPress={() => onEditar(item.id)}
             >
               <View style={styles.fiestaAvatar}>
-                <Text style={{ fontSize: 24 }}>{item.emoji || '🥳'}</Text>
+                {item.link_logo ? (
+                  <Image source={{ uri: item.link_logo }} style={styles.fiestaAvatarImage} />
+                ) : (
+                  <Text style={{ fontSize: 24 }}>{item.emoji || '🥳'}</Text>
+                )}
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.fiestaTitle} numberOfLines={1}>{item.titulo}</Text>
@@ -222,13 +228,13 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
   const [etapas, setEtapas] = useState(FORM_VACIO.etapas);
   const [esByob, setEsByob] = useState(FORM_VACIO.esByob);
   const [soloMayores, setSoloMayores] = useState(FORM_VACIO.soloMayores);
+  const [linkLogo, setLinkLogo] = useState<string | null>(null);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
   const [publicando, setPublicando] = useState(false);
   const [eliminando, setEliminando] = useState(false);
   const [modalEliminar, setModalEliminar] = useState(false);
 
   // Cada vez que cambia idEdicion (o al montar), reseteamos TODO el formulario
-  // antes de, en su caso, rellenarlo con los datos de la fiesta a editar.
-  // Esto evita que datos de una edición anterior queden pegados.
   useEffect(() => {
     let cancelado = false;
 
@@ -244,6 +250,7 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
       setEtapas([{ precio: '', fechas: '' }]);
       setEsByob(FORM_VACIO.esByob);
       setSoloMayores(FORM_VACIO.soloMayores);
+      setLinkLogo(null);
     };
 
     const inicializar = async () => {
@@ -286,6 +293,7 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
         setTieneCover(!!data.tiene_cover);
         setEsByob(!!data.es_byob);
         setSoloMayores(!!data.solo_mayores);
+        setLinkLogo(data.link_logo ?? null);
 
         const tipoObj = TIPOS_FIESTA.find((t) => t.label === data.tipo_fiesta) || TIPOS_FIESTA[0];
         setTipoSeleccionado(tipoObj);
@@ -317,6 +325,21 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
       cancelado = true;
     };
   }, [idEdicion, esEdicion]);
+
+  const handleSeleccionarLogo = async () => {
+    try {
+      setSubiendoLogo(true);
+      const url = await seleccionarYSubirImagen('fotos-fiestas');
+      if (url) {
+        setLinkLogo(url);
+        showToast('Logo cargado correctamente 🖼️', 'success');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error al subir el logo', 'error');
+    } finally {
+      setSubiendoLogo(false);
+    }
+  };
 
   const onChangeFecha = (event: any, selectedDate?: Date) => {
     setMostrarPicker(Platform.OS === 'ios');
@@ -365,6 +388,7 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
       solo_mayores: soloMayores,
       emoji: tipoSeleccionado.emoji,
       tipo_fiesta: tipoSeleccionado.label,
+      link_logo: linkLogo,
     };
 
     let errorDB = null;
@@ -429,6 +453,34 @@ function FormularioFiesta({ idEdicion, onVolver }: { idEdicion: string | null; o
         <Text style={styles.subheader}>
           {esEdicion ? 'Modifica los detalles del evento' : 'Configura los detalles del evento'}
         </Text>
+
+        <Text style={styles.label}>Logo de la fiesta (opcional)</Text>
+        <TouchableOpacity
+          style={styles.logoPickerButton}
+          onPress={handleSeleccionarLogo}
+          disabled={subiendoLogo}
+          activeOpacity={0.75}
+        >
+          {subiendoLogo ? (
+            <View style={styles.logoLoadingBox}>
+              <ActivityIndicator color="#ff3b30" size="small" />
+              <Text style={styles.logoEmptyText}>Subiendo imagen a Supabase...</Text>
+            </View>
+          ) : linkLogo ? (
+            <View style={styles.logoPreviewWrap}>
+              <Image source={{ uri: linkLogo }} style={styles.logoPreviewImage} />
+              <View style={styles.logoCambiarBadge}>
+                <Ionicons name="camera" size={14} color="#fff" />
+                <Text style={styles.logoCambiarText}>Cambiar Logo</Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.logoEmptyBox}>
+              <Ionicons name="image-outline" size={28} color="#ff3b30" />
+              <Text style={styles.logoEmptyText}>Seleccionar Logo de la Galería 🖼️</Text>
+            </View>
+          )}
+        </TouchableOpacity>
 
         <Text style={styles.label}>Título de la fiesta</Text>
         <TextInput
@@ -650,11 +702,20 @@ const styles = StyleSheet.create({
   crearNuevaButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   listContent: { paddingHorizontal: 16, paddingBottom: 40 },
   fiestaCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1c1c1e', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#2c2c2e' },
-  fiestaAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2c2c2e', alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 2, borderColor: '#ff3b30' },
+  fiestaAvatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#2c2c2e', alignItems: 'center', justifyContent: 'center', marginRight: 14, borderWidth: 2, borderColor: '#ff3b30', overflow: 'hidden' },
+  fiestaAvatarImage: { width: 50, height: 50, borderRadius: 25 },
   fiestaTitle: { color: '#fff', fontSize: 16, fontWeight: '600', marginBottom: 4 },
   fiestaSubtitle: { color: '#8e8e93', fontSize: 13 },
   badgePasada: { alignSelf: 'flex-start', backgroundColor: '#2c2c2e', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
   badgePasadaText: { color: '#8e8e93', fontSize: 11, fontWeight: '600' },
+  logoPickerButton: { backgroundColor: '#1c1c1e', borderRadius: 14, borderWidth: 1, borderColor: '#2c2c2e', borderStyle: 'dashed', overflow: 'hidden', marginVertical: 4 },
+  logoEmptyBox: { paddingVertical: 20, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  logoLoadingBox: { paddingVertical: 20, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  logoEmptyText: { color: '#8e8e93', fontSize: 13, fontWeight: '600' },
+  logoPreviewWrap: { height: 120, alignItems: 'center', justifyContent: 'center', padding: 12 },
+  logoPreviewImage: { width: 70, height: 70, borderRadius: 35, borderWidth: 2, borderColor: '#ff3b30' },
+  logoCambiarBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, backgroundColor: 'rgba(255,59,48,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  logoCambiarText: { color: '#ff3b30', fontSize: 12, fontWeight: 'bold' },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { color: '#8e8e93', fontSize: 15 },
 });
