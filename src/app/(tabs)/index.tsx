@@ -18,6 +18,7 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
+import { paletaParaFiesta } from '../../utils/colors';
 
 export interface Evento {
   id: string | number;
@@ -221,8 +222,8 @@ export default function IndexScreen() {
   };
 
   const [colorBannerA, colorBannerB, colorBannerC] = selectedEvent
-    ? paletaParaId(String(selectedEvent.id))
-    : PALETAS[0];
+    ? paletaParaFiesta(selectedEvent)
+    : ['#FF2A6D', '#05D9E8', '#D1F7FF'];
 
   return (
     <View style={styles.container}>
@@ -238,7 +239,7 @@ export default function IndexScreen() {
         onPress={closeCard}
       >
         {eventosFiltrados.map((ev) => {
-          const [colorPin] = paletaParaId(String(ev.id));
+          const [colorPin] = paletaParaFiesta(ev);
           return (
             <Marker
               hitSlop={{ top: 25, bottom: 25, left: 25, right: 25 }}
@@ -344,29 +345,28 @@ export default function IndexScreen() {
           >
             <LinearGradient
               colors={[colorBannerA, colorBannerB, colorBannerC]}
-              start={{ x: 0.1, y: 0 }}
-              end={{ x: 0.9, y: 1 }}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={styles.detailBanner}
             >
               <LinearGradient
-                colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
+                colors={['rgba(255,255,255,0.3)', 'rgba(0,0,0,0.4)']}
                 start={{ x: 0, y: 0 }}
-                end={{ x: 0.6, y: 0.8 }}
+                end={{ x: 0.6, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <LinearGradient
-                colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.45)']}
-                start={{ x: 0.3, y: 0.1 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
+              <View style={styles.bannerTagBadge}>
+                <Text style={styles.bannerTagBadgeText}>
+                  🔥 {selectedEvent.tipo_fiesta || 'GRAN EVENTO'}
+                </Text>
+              </View>
 
               <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
                 <Ionicons name="close" size={18} color="#fff" />
               </TouchableOpacity>
             </LinearGradient>
 
-            <View style={styles.detailAvatarWrap}>
+            <View style={[styles.detailAvatarWrap, { borderColor: colorBannerA }]}>
               {selectedEvent.link_logo ? (
                 <Image source={{ uri: selectedEvent.link_logo }} style={styles.detailAvatarImage} />
               ) : (
@@ -406,15 +406,14 @@ export default function IndexScreen() {
                 {renderCoverInfo(selectedEvent.info_cover) && (
                   <View style={[styles.chip, styles.chipCover]}>
                     <Text style={[styles.chipText, styles.chipCoverText]}>
-                      {renderCoverInfo(selectedEvent.info_cover)}
+                      💰 {renderCoverInfo(selectedEvent.info_cover)}
                     </Text>
                   </View>
                 )}
               </View>
 
               <TouchableOpacity
-                style={styles.attendButton}
-                activeOpacity={0.85}
+                activeOpacity={0.88}
                 onPress={() => {
                   if (session) {
                     router.push(`./fiesta/${selectedEvent.id}`);
@@ -423,7 +422,15 @@ export default function IndexScreen() {
                   }
                 }}
               >
-                <Text style={styles.attendButtonText}>Ver detalles / Asistir</Text>
+                <LinearGradient
+                  colors={[colorBannerA, '#ff3b30']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.attendButton}
+                >
+                  <Text style={styles.attendButtonText}>🎉 Ver detalles / Asistir</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                </LinearGradient>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -689,42 +696,59 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 100 : 84, // 🔥 espacio para que no lo tape la tab bar
   },
   detailBanner: {
-    height: 110,
-    padding: 18,
-    justifyContent: 'flex-end',
+    height: 130,
+    padding: 14,
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  bannerTagBadge: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  bannerTagBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
   },
   detailAvatarWrap: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#1c1c2e',
-    borderWidth: 3,
-    borderColor: '#151525',
+    borderWidth: 4,
+    borderColor: '#ff3b30',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginTop: -38,
+    marginTop: -45,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 10,
     zIndex: 12,
   },
   detailAvatarImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 82,
+    height: 82,
+    borderRadius: 41,
   },
   detailAvatarEmoji: {
-    fontSize: 36,
+    fontSize: 42,
   },
   detailTitleCentered: {
     color: '#fff',
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '900',
     textAlign: 'center',
     marginBottom: 14,
+    letterSpacing: 0.3,
   },
   closeButton: {
     position: 'absolute',
@@ -778,10 +802,12 @@ const styles = StyleSheet.create({
   chipCover: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: 'rgba(255,59,48,0.4)' },
   chipCoverText: { color: '#ff6b60' },
   attendButton: {
-    backgroundColor: '#ff3b30',
     borderRadius: 16,
     paddingVertical: 16,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginTop: 14,
     shadowColor: '#ff3b30',
     shadowOffset: { width: 0, height: 6 },

@@ -21,6 +21,7 @@ import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
 import { useToast } from '../../components/Toast';
 import { seleccionarYSubirImagen } from '../../utils/uploadImage';
+import { paletaParaFiesta } from '../../utils/colors';
 
 // Misma familia de paletas "pintura líquida" del resto de la app —
 // cada fiesta usa siempre la misma, coherente con el mapa y la lista.
@@ -364,7 +365,7 @@ export default function FiestaDetailScreen() {
     );
   }
 
-  const coloresFiesta = paletaParaId(String(id));
+  const coloresFiesta = paletaParaFiesta(evento || { id: String(id) });
   const [colorAcento] = coloresFiesta;
 
   return (
@@ -382,9 +383,16 @@ export default function FiestaDetailScreen() {
           <Ionicons name="chevron-down" size={32} color="#fff" />
         </TouchableOpacity>
 
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {evento.emoji || '🥳'} {evento.titulo} ({asistentes} 👤)
-        </Text>
+        <View style={styles.headerTitleContainer}>
+          {evento?.link_logo ? (
+            <Image source={{ uri: evento.link_logo }} style={styles.headerLogoAvatar} />
+          ) : (
+            <Text style={{ fontSize: 20, marginRight: 6 }}>{evento?.emoji || '🥳'}</Text>
+          )}
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            {evento?.titulo} ({asistentes} 👤)
+          </Text>
+        </View>
 
         {esAdmin ? (
           <TouchableOpacity
@@ -434,11 +442,16 @@ export default function FiestaDetailScreen() {
         }}
       >
         <View style={[styles.infoCard, { borderColor: colorAcento + '55' }]}>
-          <Text style={styles.infoLugar}>📍 {evento.lugar}</Text>
+          {evento?.link_logo && (
+            <View style={[styles.heroLogoWrap, { borderColor: colorAcento }]}>
+              <Image source={{ uri: evento.link_logo }} style={styles.heroLogoImage} />
+            </View>
+          )}
+          <Text style={styles.infoLugar}>📍 {evento?.lugar}</Text>
           <Text style={styles.infoDetalles}>
-            {evento.tipo_fiesta ? `${evento.tipo_fiesta} · ` : ''}
-            {evento.es_byob ? 'BYOB 🍻 · ' : ''}
-            {evento.solo_mayores ? '+18 🔞' : ''}
+            {evento?.tipo_fiesta ? `${evento.tipo_fiesta} · ` : ''}
+            {evento?.es_byob ? 'BYOB 🍻 · ' : ''}
+            {evento?.solo_mayores ? '+18 🔞' : ''}
           </Text>
         </View>
 
@@ -638,9 +651,44 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   closeIcon: { padding: 4 },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', flex: 1, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.4)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  headerTitleContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  headerLogoAvatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.6)',
+  },
+  headerTitle: { color: '#fff', fontSize: 17, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.4)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   body: { flex: 1 },
-  infoCard: { backgroundColor: '#16162a', margin: 16, borderRadius: 16, padding: 16, borderWidth: 1 },
+  infoCard: { backgroundColor: '#16162a', margin: 16, borderRadius: 16, padding: 16, borderWidth: 1, alignItems: 'center' },
+  heroLogoWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    backgroundColor: '#0d0d18',
+    marginBottom: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  heroLogoImage: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+  },
   infoLugar: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
   infoDetalles: { color: '#8a8aa3', fontSize: 14 },
   joinContainer: { alignItems: 'center', paddingHorizontal: 30, marginTop: 40 },

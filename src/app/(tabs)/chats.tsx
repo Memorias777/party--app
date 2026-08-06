@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
+import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Animated, Image } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../../../supabase';
+import { paletaParaFiesta } from '../../utils/colors';
 
 const PALETAS = [
   ['#0FC2C0', '#F4D35E', '#EDEEC9'],
@@ -123,7 +124,7 @@ export default function ChatsScreen() {
     const fecha = new Date(item.fecha_hora).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
     const asistentes = item.participantes?.[0]?.count || 1;
     const yaPaso = new Date(item.fecha_hora).getTime() < Date.now();
-    const colores = paletaParaId(String(item.id));
+    const colores = paletaParaFiesta(item);
 
     return (
       <TouchableOpacity
@@ -145,7 +146,13 @@ export default function ChatsScreen() {
               </View>
             </View>
 
-            <Text style={styles.bannerEmoji}>{item.emoji || '🥳'}</Text>
+            {item.link_logo ? (
+              <View style={styles.bannerLogoWrap}>
+                <Image source={{ uri: item.link_logo }} style={styles.bannerLogoImage} />
+              </View>
+            ) : (
+              <Text style={styles.bannerEmoji}>{item.emoji || '🥳'}</Text>
+            )}
           </View>
         </View>
 
@@ -248,6 +255,26 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.25)',
     textShadowOffset: { width: 0, height: 3 },
     textShadowRadius: 6,
+  },
+  bannerLogoWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignSelf: 'center',
+    backgroundColor: '#1c1c2e',
+    borderWidth: 2.5,
+    borderColor: 'rgba(255,255,255,0.7)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  bannerLogoImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 32,
   },
 
   cardInfo: { padding: 16 },
