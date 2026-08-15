@@ -2,6 +2,8 @@ export const PALETAS_FIESTA: Record<string, string[]> = {
   antro: ['#8A2BE2', '#FF007F', '#00F0FF'],       // Neón Cyber/Antro (Púrpura, Magenta, Cyan)
   callejoneada: ['#FF6B00', '#FFD700', '#8B4513'],// Cálido Zacatecas (Naranja, Dorado, Ámbar)
   norteno: ['#00B0FF', '#00E676', '#FFEA00'],     // Fiesta Norteña (Azul Eléctrico, Verde, Amarillo)
+  rave: ['#00E5FF', '#7928CA', '#FF007F'],        // Rave / Electrónica (Cyan, Violeta, Rosa)
+  boda: ['#D4AF37', '#F5E6CA', '#C0C0C0'],        // Elegante / Boda (Dorado, Crema, Plata)
   default: ['#FF2A6D', '#05D9E8', '#D1F7FF'],     // Synthwave Fiesta (Rosa neón, Turquesa, Azul)
 };
 
@@ -14,19 +16,21 @@ export const PALETAS_LISTA = [
   ['#3A86FF', '#8AC926', '#FFCA3A'], // Electric Trio
 ];
 
-export function paletaParaFiesta(evento: {
+export function paletaParaFiesta(evento?: {
   id?: string | number;
   tipo_fiesta?: string;
   link_logo?: string;
 }): string[] {
-  if (evento.tipo_fiesta) {
+  if (evento?.tipo_fiesta) {
     const tipoLower = evento.tipo_fiesta.toLowerCase();
     if (tipoLower.includes('antro')) return PALETAS_FIESTA.antro;
     if (tipoLower.includes('callejoneada')) return PALETAS_FIESTA.callejoneada;
     if (tipoLower.includes('norteño') || tipoLower.includes('norteno')) return PALETAS_FIESTA.norteno;
+    if (tipoLower.includes('rave') || tipoLower.includes('electro')) return PALETAS_FIESTA.rave;
+    if (tipoLower.includes('boda') || tipoLower.includes('gala')) return PALETAS_FIESTA.boda;
   }
 
-  const strToHash = String(evento.link_logo || evento.id || 'fiesta');
+  const strToHash = String(evento?.link_logo || evento?.id || 'fiesta');
   let hash = 0;
   for (let i = 0; i < strToHash.length; i++) {
     hash = (hash * 31 + strToHash.charCodeAt(i)) >>> 0;
