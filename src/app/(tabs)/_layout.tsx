@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Platform, View, Animated, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // -----------------------------------------------------------------------
 // Gradiente animado (tipo "pintura líquida en movimiento") que cubre
@@ -105,6 +106,12 @@ function AnimatedTabIcon({
 }
 
 export default function TabLayout() {
+  // Respeta la barra de navegación del sistema (3 botones / gestos en Android,
+  // home indicator en iOS) para que los tabs nunca queden debajo de ella.
+  const insets = useSafeAreaInsets();
+  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 0 : 8);
+  const TAB_BASE_HEIGHT = 60;
+
   return (
     <Tabs
       screenOptions={{
@@ -116,7 +123,8 @@ export default function TabLayout() {
           position: 'absolute',
           backgroundColor: 'transparent',
           borderTopWidth: 0,
-          height: Platform.OS === 'ios' ? 92 : 68,
+          height: TAB_BASE_HEIGHT + bottomInset,
+          paddingBottom: bottomInset,
           elevation: 0,
         },
         tabBarBackground: () => (
