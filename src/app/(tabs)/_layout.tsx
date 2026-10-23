@@ -109,7 +109,12 @@ export default function TabLayout() {
   // Respeta la barra de navegación del sistema (3 botones / gestos en Android,
   // home indicator en iOS) para que los tabs nunca queden debajo de ella.
   const insets = useSafeAreaInsets();
-  const bottomInset = Math.max(insets.bottom, Platform.OS === 'ios' ? 0 : 8);
+  const bottomInset =
+    Platform.OS === 'ios'
+      ? insets.bottom
+      : // Android: inset del sistema (3 botones ≈ 48, gestos ≈ 16-24) + aire extra
+        // para que los tabs no queden pegados a la barra de gestos.
+        Math.max(insets.bottom + 10, 16);
   const TAB_BASE_HEIGHT = 60;
 
   return (

@@ -7,7 +7,6 @@ import {
   Animated,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -19,6 +18,7 @@ import {
 } from 'react-native';
 import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
+import ImageViewer from '../../components/ImageViewer';
 import { useToast } from '../../components/Toast';
 import { seleccionarYSubirImagen } from '../../utils/uploadImage';
 import { paletaParaFiesta } from '../../utils/colors';
@@ -98,7 +98,8 @@ export default function FiestaDetailScreen() {
   const [evento, setEvento] = useState<any>(null);
   const [cargando, setCargando] = useState(true);
 
-  const [tabActual, setTabActual] = useState<'general' | 'avisos'>('general');
+  // Avisos primero: la info oficial de la fiesta es lo principal al entrar
+  const [tabActual, setTabActual] = useState<'general' | 'avisos'>('avisos');
 
   const [userId, setUserId] = useState<string | null>(null);
   const [mensajes, setMensajes] = useState<any[]>([]);
@@ -118,6 +119,9 @@ export default function FiestaDetailScreen() {
   const [textoEditar, setTextoEditar] = useState('');
   const [modalConfirmBorrarMsg, setModalConfirmBorrarMsg] = useState(false);
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+
+  // Foto abierta en el visor a pantalla completa (null = cerrado)
+  const [fotoVisor, setFotoVisor] = useState<string | null>(null);
 
   useEffect(() => {
     const iniciarSala = async () => {
@@ -339,13 +343,9 @@ export default function FiestaDetailScreen() {
     }
   };
 
-  const abrirFoto = async (url?: string) => {
+  const abrirFoto = (url?: string) => {
     if (!url) return;
-    try {
-      await Linking.openURL(url);
-    } catch {
-      showToast('No se pudo abrir la imagen', 'error');
-    }
+    setFotoVisor(url);
   };
 
   const formatearHora = (timestamp: string) => {
@@ -410,16 +410,16 @@ export default function FiestaDetailScreen() {
         <View style={styles.tabWrapper}>
           <View style={styles.tabContainer}>
             <TouchableOpacity
+              style={[styles.tab, tabActual === 'avisos' && styles.tabActive]}
+              onPress={() => setTabActual('avisos')}
+            >
+              <Text style={[styles.tabText, tabActual === 'avisos' && styles.tabTextActive]}>📢 Avisos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.tab, tabActual === 'general' && styles.tabActive]}
               onPress={() => setTabActual('general')}
             >
               <Text style={[styles.tabText, tabActual === 'general' && styles.tabTextActive]}>💬 Chat General</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.tab, tabActual === 'avisos' && styles.tabActive]}
-              onPress={() => setTabActual('avisos')}
-            >
-              <Text style={[styles.tabText, tabActual === 'avisos' && styles.tabTextActive]}>📢 Avisos (Admin)</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -634,6 +634,8 @@ export default function FiestaDetailScreen() {
         onCancel={() => setModalConfirmBorrarMsg(false)}
         onConfirm={borrarMensajeConfirmado}
       />
+
+      <ImageViewer url={fotoVisor} onClose={() => setFotoVisor(null)} />
     </KeyboardAvoidingView>
   );
 }

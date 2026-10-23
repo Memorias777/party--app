@@ -39,7 +39,17 @@
           "imageWidth": 76
         }
       ],
-      "expo-font"
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser",
+      [
+        "react-native-maps",
+        {
+          "androidGoogleMapsApiKey": "AIzaSyA7JaHraG1cgxowpcET_nCbYi1kQb7Kte8"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
