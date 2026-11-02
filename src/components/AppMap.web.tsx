@@ -1,15 +1,72 @@
-import React, { useMemo } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { C, R, S, T } from '../constants/design';
-import { alpha } from '../utils/colors';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { C } from '../constants/design';
+
+const createPortal: (children: React.ReactNode, container: Element) => React.ReactPortal | null =
+  typeof window !== 'undefined' ? require('react-dom').createPortal : () => null;
 
 // -----------------------------------------------------------------------
-// Implementación Web de MapView y Marker.
-// Renderiza un mapa interactivo oscuro de Zacatecas en un iframe de Google Maps
-// y una barra/retícula interactiva con los marcadores para que en Web nunca
-// falle la compilación por módulos nativos de react-native-maps.
+// Mapa Web Interactivo Real (Leaflet + CartoDB Dark Matter).
+// Renderiza los componentes <Marker> de React Native (con sus logos, colores
+// y badges) directamente sobre sus coordenadas reales en el mapa.
 // -----------------------------------------------------------------------
+
+let leafletPromise: Promise<any> | null = null;
+
+function loadLeaflet(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if ((window as any).L) return Promise.resolve((window as any).L);
+  if (leafletPromise) return leafletPromise;
+
+  leafletPromise = new Promise((resolve) => {
+    if (!document.getElementById('leaflet-css-cdn')) {
+      const link = document.createElement('link');
+      link.id = 'leaflet-css-cdn';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+    }
+
+    if (!document.getElementById('leaflet-custom-dark-css')) {
+      const style = document.createElement('style');
+      style.id = 'leaflet-custom-dark-css';
+      style.innerHTML = `
+        .leaflet-container {
+          background: #0B0B10 !important;
+          font-family: system-ui, -apple-system, sans-serif;
+        }
+        /* Modo oscuro nativo sobre las calles del mapa (sin afectar los pines ni logos) */
+        .leaflet-tile-pane {
+          filter: invert(100%) hue-rotate(180deg) brightness(88%) contrast(92%) saturate(75%);
+        }
+        .party-web-marker {
+          background: transparent !important;
+          border: none !important;
+        }
+        .leaflet-control-attribution {
+          font-size: 9px !important;
+          background: rgba(11,11,16,0.6) !important;
+          color: #6B6B76 !important;
+        }
+        .leaflet-control-attribution a {
+          color: #A1A1AA !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => resolve((window as any).L);
+    script.onerror = () => resolve(null);
+    document.body.appendChild(script);
+  });
+
+  return leafletPromise;
+}
+
+const MapInstanceContext = React.createContext<any>(null);
 
 export function Marker({
   children,
@@ -22,23 +79,80 @@ export function Marker({
   hitSlop?: any;
   anchor?: any;
 }) {
-  return (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      onPress={() =>
-        onPress?.({
-          stopPropagation: () => {},
-          nativeEvent: { coordinate },
-        })
+  const map = React.useContext(MapInstanceContext);
+  const markerRef = useRef<any>(null);
+  const onPressRef = useRef(onPress);
+  onPressRef.current = onPress;
+
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
+
+  const lat = Number(coordinate?.latitude) || 22.7709;
+  const lng = Number(coordinate?.longitude) || -102.5832;
+
+  useEffect(() => {
+    if (!map || typeof window === 'undefined') return;
+    const L = (window as any).L;
+    if (!L) return;
+
+    const el = document.createElement('div');
+    el.style.display = 'flex';
+    el.style.flexDirection = 'column';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'flex-end';
+    el.style.width = '52px';
+    el.style.height = '56px';
+    el.style.cursor = 'pointer';
+
+    const icon = L.divIcon({
+      className: 'party-web-marker',
+      html: el,
+      iconSize: [52, 56],
+      iconAnchor: [26, 54],
+    });
+
+    const marker = L.marker([lat, lng], { icon }).addTo(map);
+    marker.on('click', (ev: any) => {
+      if (ev?.originalEvent) {
+        ev.originalEvent.stopPropagation();
       }
-      style={styles.webMarkerItem}
-    >
-      {children || (
-        <View style={styles.defaultPin}>
-          <Ionicons name="location" size={20} color="#fff" />
-        </View>
-      )}
-    </TouchableOpacity>
+      onPressRef.current?.({
+        stopPropagation: () => {},
+        nativeEvent: { coordinate: { latitude: lat, longitude: lng } },
+      });
+    });
+
+    markerRef.current = marker;
+    setPortalEl(el);
+
+    return () => {
+      marker.remove();
+      markerRef.current = null;
+      setPortalEl(null);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.setLatLng([lat, lng]);
+    }
+  }, [lat, lng]);
+
+  if (!portalEl) return null;
+
+  return createPortal(
+    children || (
+      <div
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          backgroundColor: '#FF3D7F',
+          border: '2.5px solid #fff',
+          boxShadow: '0 3px 8px rgba(0,0,0,0.45)',
+        }}
+      />
+    ),
+    portalEl
   );
 }
 
@@ -52,73 +166,99 @@ export default function MapView({
   children?: React.ReactNode;
   style?: any;
   customMapStyle?: any;
-  initialRegion?: { latitude: number; longitude: number; latitudeDelta?: number; longitudeDelta?: number };
-  region?: { latitude: number; longitude: number; latitudeDelta?: number; longitudeDelta?: number };
+  initialRegion?: {
+    latitude: number;
+    longitude: number;
+    latitudeDelta?: number;
+    longitudeDelta?: number;
+  };
+  region?: {
+    latitude: number;
+    longitude: number;
+    latitudeDelta?: number;
+    longitudeDelta?: number;
+  };
   onPress?: (e: any) => void;
 }) {
+  const rawId = useId();
+  const containerId = `party-leaflet-map-${rawId.replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const [mapInstance, setMapInstance] = useState<any>(null);
+  const onPressRef = useRef(onPress);
+  onPressRef.current = onPress;
+
   const activeRegion = region || initialRegion || { latitude: 22.7709, longitude: -102.5832 };
   const lat = Number(activeRegion.latitude) || 22.7709;
   const lng = Number(activeRegion.longitude) || -102.5832;
 
-  const mapEmbedUrl = useMemo(() => {
-    return `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
-  }, [lat, lng]);
+  useEffect(() => {
+    let cancelado = false;
+    let map: any = null;
 
-  const childArray = React.Children.toArray(children);
+    loadLeaflet().then((L) => {
+      if (cancelado || !L) return;
+      const domNode = document.getElementById(containerId);
+      if (!domNode) return;
+
+      map = L.map(domNode, {
+        center: [lat, lng],
+        zoom: 15,
+        zoomControl: false,
+      });
+
+      // Tiles oficiales de OpenStreetMap (100% libres y sin API key) estilizados en modo oscuro
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap',
+      }).addTo(map);
+
+      map.on('click', (e: any) => {
+        onPressRef.current?.({
+          nativeEvent: {
+            coordinate: {
+              latitude: e.latlng.lat,
+              longitude: e.latlng.lng,
+            },
+          },
+        });
+      });
+
+      setMapInstance(map);
+      setTimeout(() => map.invalidateSize(), 150);
+    });
+
+    return () => {
+      cancelado = true;
+      if (map) {
+        map.remove();
+      }
+    };
+  }, [containerId]);
+
+  useEffect(() => {
+    if (mapInstance && region) {
+      mapInstance.setView([lat, lng], mapInstance.getZoom(), { animate: true });
+    }
+  }, [mapInstance, region?.latitude, region?.longitude]);
 
   return (
     <View style={[styles.container, style]}>
-      {/* Mapa embebido compatible con cualquier navegador web */}
-      {React.createElement('iframe', {
-        src: mapEmbedUrl,
-        style: {
-          border: 0,
-          width: '100%',
-          height: '100%',
-          filter: 'invert(90%) hue-rotate(180deg) brightness(95%) contrast(90%)',
-        },
-        loading: 'lazy',
-        referrerPolicy: 'no-referrer-when-downgrade',
-      })}
-
-      {/* Selector de ubicaciones / marcadores flotante en versión Web */}
-      {childArray.length > 0 && (
-        <View style={styles.markersOverlay} pointerEvents="box-none">
-          <View style={styles.markersDock}>
-            <View style={styles.dockHeader}>
-              <Ionicons name="compass-outline" size={16} color={C.brand} />
-              <Text style={T.micro}>UBICACIONES EN EL MAPA (TOCA UN PIN PARA VER LAS FIESTAS)</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.markersScroll}
-            >
-              {children}
-            </ScrollView>
-          </View>
-        </View>
-      )}
-
-      {/* Si es un mini-mapa de edición (con onPress para coordenadas), botón rápido para centrar */}
-      {onPress && childArray.length <= 1 && (
-        <TouchableOpacity
-          style={styles.coordHelperBadge}
-          activeOpacity={0.85}
-          onPress={() =>
-            onPress({
-              nativeEvent: {
-                coordinate: { latitude: lat, longitude: lng },
-              },
-            })
-          }
-        >
-          <Ionicons name="location-outline" size={14} color={C.brand} />
-          <Text style={T.caption}>
-            Coordenadas: {lat.toFixed(4)}, {lng.toFixed(4)}
-          </Text>
-        </TouchableOpacity>
-      )}
+      {typeof window !== 'undefined' &&
+        React.createElement('div', {
+          id: containerId,
+          style: {
+            width: '100%',
+            height: '100%',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1,
+          },
+        })}
+      <MapInstanceContext.Provider value={mapInstance}>
+        {mapInstance ? children : null}
+      </MapInstanceContext.Provider>
     </View>
   );
 }
@@ -129,58 +269,5 @@ const styles = StyleSheet.create({
     backgroundColor: C.bg,
     position: 'relative',
     overflow: 'hidden',
-  },
-  markersOverlay: {
-    position: 'absolute',
-    bottom: 24,
-    left: S.lg,
-    right: S.lg,
-    alignItems: 'center',
-  },
-  markersDock: {
-    width: '100%',
-    maxWidth: 680,
-    backgroundColor: alpha(C.surface, 0.94),
-    borderRadius: R.xl,
-    padding: S.md,
-    borderWidth: 1,
-    borderColor: C.borderStrong,
-    gap: S.sm,
-  },
-  dockHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  markersScroll: {
-    gap: S.md,
-    alignItems: 'center',
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-  },
-  webMarkerItem: {
-    padding: 4,
-  },
-  defaultPin: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: C.brand,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  coordHelperBadge: {
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: alpha(C.surface, 0.92),
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: R.md,
-    borderWidth: 1,
-    borderColor: C.borderStrong,
   },
 });
