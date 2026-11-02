@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -7,18 +6,20 @@ import {
   Dimensions,
   Image,
   Modal,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
-import { paletaParaFiesta } from '../../utils/colors';
+import { Button, Chip, FiestaGlow, IconButton, SectionLabel, tap } from '../../components/ui/kit';
+import { C, R, S, T, shadow } from '../../constants/design';
+import { alpha, paletaParaFiesta, useColoresFiesta } from '../../utils/colors';
 
 export interface Evento {
   id: string | number;
@@ -35,6 +36,7 @@ export interface Evento {
   tipo_fiesta?: string;
   info_cover?: string;
   link_logo?: string;
+  colores?: string[] | null;
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -43,38 +45,23 @@ const HORAS_VISIBLE_DESPUES = 5;
 type FiltroTipo = 'todos' | 'Antro' | 'Callejoneada' | 'Norteño';
 type FiltroTiempo = 'hoy' | 'semana' | 'mes' | 'todos';
 
-const PALETAS = [
-  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
-  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
-  ['#7B9E43', '#F4D35E', '#3D2B1F'],
-  ['#118AB2', '#06D6A0', '#FFD166'],
-  ['#3A86FF', '#8AC926', '#FFCA3A'],
-  ['#5EC6C0', '#2D3142', '#F4D35E'],
-];
-
-const paletaParaId = (id: string) => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETAS[hash % PALETAS.length];
-};
-
 const MAPA_ESTILO_OSCURO = [
-  { elementType: 'geometry', stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a1a2e' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8a8aa3' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#c9c9e0' }] },
+  { elementType: 'geometry', stylers: [{ color: '#111118' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#111118' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#71717a' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d4d4d8' }] },
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#16213e' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#4a5568' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2a2a45' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#1a1a2e' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#6c6c8a' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#3a3a5c' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1a1a2e' }] },
-  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#b8b8d4' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#141c24' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#52525b' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1f1f29' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#111118' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#71717a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#272733' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#111118' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#a1a1aa' }] },
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0d1b2a' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4a5568' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#090d16' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3f3f46' }] },
 ];
 
 const FILTROS_TIEMPO: { key: FiltroTiempo; label: string }[] = [
@@ -85,6 +72,7 @@ const FILTROS_TIEMPO: { key: FiltroTiempo; label: string }[] = [
 ];
 
 export default function IndexScreen() {
+  const insets = useSafeAreaInsets();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [session, setSession] = useState<any>(null);
   const [selectedEvent, setSelectedEvent] = useState<Evento | null>(null);
@@ -99,6 +87,9 @@ export default function IndexScreen() {
 
   const cardTranslateY = useRef(new Animated.Value(300)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
+
+  const coloresSelected = useColoresFiesta(selectedEvent);
+  const [colorAcento] = coloresSelected;
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -135,6 +126,7 @@ export default function IndexScreen() {
   );
 
   const openCard = (ev: Evento) => {
+    tap();
     setSelectedEvent(ev);
     Animated.parallel([
       Animated.spring(cardTranslateY, { toValue: 0, useNativeDriver: true, bounciness: 6 }),
@@ -153,7 +145,11 @@ export default function IndexScreen() {
     try {
       const fecha = new Date(fechaISO);
       return fecha.toLocaleString('es-MX', {
-        weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
       });
     } catch {
       return fechaISO;
@@ -162,8 +158,8 @@ export default function IndexScreen() {
 
   const renderCoverInfo = (info?: string) => {
     if (!info || info === 'Sin Cover') return null;
-    if (info.startsWith('[')) return '💵 Cover por etapas';
-    return `💵 $${info}`;
+    if (info.startsWith('[')) return 'Cover por etapas';
+    return `$${info}`;
   };
 
   const eventosFiltrados = useMemo(() => {
@@ -216,14 +212,13 @@ export default function IndexScreen() {
   const filtrosActivos = filtroTipo !== 'todos' || soloByob || soloConCover;
 
   const limpiarFiltros = () => {
+    tap();
     setFiltroTipo('todos');
     setSoloByob(false);
     setSoloConCover(false);
   };
 
-  const [colorBannerA, colorBannerB, colorBannerC] = selectedEvent
-    ? paletaParaFiesta(selectedEvent)
-    : ['#FF2A6D', '#05D9E8', '#D1F7FF'];
+  const topOffset = insets.top + 10;
 
   return (
     <View style={styles.container}>
@@ -257,7 +252,9 @@ export default function IndexScreen() {
                     <Image source={{ uri: ev.link_logo }} style={styles.pinLogoImage} />
                   </View>
                 ) : (
-                  <View style={[styles.pinHead, { backgroundColor: colorPin }]} />
+                  <View style={[styles.pinHead, { backgroundColor: colorPin }]}>
+                    <Text style={{ fontSize: 13 }}>{ev.emoji || '🎉'}</Text>
+                  </View>
                 )}
                 <View style={[styles.pinTail, { borderTopColor: colorPin }]} />
               </View>
@@ -266,43 +263,49 @@ export default function IndexScreen() {
         })}
       </MapView>
 
-      <TouchableOpacity
-        style={styles.profileButton}
-        activeOpacity={0.8}
-        onPress={() => {
-          if (session) {
-            router.push('/(tabs)/perfil');
-          } else {
-            router.push('/login');
-          }
-        }}
-      >
-        <Text style={{ fontSize: 22 }}>{session ? '👤' : '🔑'}</Text>
-      </TouchableOpacity>
+      {/* Controles flotantes superiores */}
+      <View style={[styles.topControlsRow, { top: topOffset }]}>
+        <TouchableOpacity
+          style={[styles.profileButton, shadow('#000', 6)]}
+          activeOpacity={0.8}
+          onPress={() => {
+            tap();
+            if (session) {
+              router.push('/(tabs)/perfil');
+            } else {
+              router.push('/login');
+            }
+          }}
+        >
+          <Ionicons name={session ? 'person' : 'key'} size={20} color={C.text} />
+        </TouchableOpacity>
 
-      <View style={styles.searchBarWrapper}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={17} color="#8a8aa3" style={{ marginRight: 8 }} />
+        <View style={[styles.searchBar, shadow('#000', 6)]}>
+          <Ionicons name="search" size={17} color={C.textMuted} style={{ marginRight: 8 }} />
           <TextInput
             style={styles.searchInput}
             placeholder="Buscar fiestas, lugares..."
-            placeholderTextColor="#6c6c8a"
+            placeholderTextColor={C.textFaint}
             value={searchText}
             onChangeText={setSearchText}
             returnKeyType="search"
           />
           {searchText.length > 0 && (
             <TouchableOpacity onPress={() => setSearchText('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close-circle" size={18} color="#8a8aa3" />
+              <Ionicons name="close-circle" size={18} color={C.textMuted} />
             </TouchableOpacity>
           )}
         </View>
+
         <TouchableOpacity
-          style={[styles.filterButton, filtrosActivos && styles.filterButtonActive]}
+          style={[styles.filterButton, shadow('#000', 6), filtrosActivos && styles.filterButtonActive]}
           activeOpacity={0.7}
-          onPress={() => setModalFiltros(true)}
+          onPress={() => {
+            tap();
+            setModalFiltros(true);
+          }}
         >
-          <Ionicons name="options" size={20} color="#fff" />
+          <Ionicons name="options" size={20} color={C.text} />
           {filtrosActivos && <View style={styles.filterDot} />}
         </TouchableOpacity>
       </View>
@@ -310,110 +313,107 @@ export default function IndexScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={styles.tiempoChipsWrapper}
+        style={[styles.tiempoChipsWrapper, { top: topOffset + 56 }]}
         contentContainerStyle={styles.tiempoChipsContent}
       >
-        {FILTROS_TIEMPO.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.tiempoChip, filtroTiempo === f.key && styles.tiempoChipActivo]}
-            onPress={() => setFiltroTiempo(f.key)}
-            activeOpacity={0.75}
-          >
-            <Text style={[styles.tiempoChipText, filtroTiempo === f.key && styles.tiempoChipTextActivo]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <View style={styles.counterBadge}>
+          <View style={styles.liveDot} />
+          <Text style={styles.counterText}>{eventosFiltrados.length} activas</Text>
+        </View>
+        {FILTROS_TIEMPO.map((f) => {
+          const active = filtroTiempo === f.key;
+          return (
+            <TouchableOpacity
+              key={f.key}
+              style={[styles.tiempoChip, active && styles.tiempoChipActivo]}
+              onPress={() => {
+                tap();
+                setFiltroTiempo(f.key);
+              }}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.tiempoChipText, active && styles.tiempoChipTextActivo]}>
+                {f.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
-      <View style={styles.counterBadge}>
-        <Text style={styles.counterText}>🎉 {eventosFiltrados.length} activas</Text>
-      </View>
-
+      {/* Tarjeta inferior de detalle de fiesta seleccionada */}
       <Animated.View
         style={[
           styles.detailCard,
-          { transform: [{ translateY: cardTranslateY }], opacity: cardOpacity },
+          shadow('#000', 14),
+          {
+            borderColor: alpha(colorAcento, 0.35),
+            transform: [{ translateY: cardTranslateY }],
+            opacity: cardOpacity,
+          },
         ]}
       >
         {selectedEvent && (
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-            contentContainerStyle={styles.detailScrollContent}
-          >
-            <LinearGradient
-              colors={[colorBannerA, colorBannerB, colorBannerC]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.detailBanner}
+          <View>
+            <FiestaGlow colores={coloresSelected} intensity={0.55} />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              contentContainerStyle={[
+                styles.detailScrollContent,
+                { paddingBottom: insets.bottom + 96 },
+              ]}
             >
-              <LinearGradient
-                colors={['rgba(255,255,255,0.3)', 'rgba(0,0,0,0.4)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0.6, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              <View style={styles.bannerTagBadge}>
-                <Text style={styles.bannerTagBadgeText}>
-                  🔥 {selectedEvent.tipo_fiesta || 'GRAN EVENTO'}
-                </Text>
-              </View>
-
-              <TouchableOpacity style={styles.closeButton} onPress={closeCard} activeOpacity={0.7}>
-                <Ionicons name="close" size={18} color="#fff" />
-              </TouchableOpacity>
-            </LinearGradient>
-
-            <View style={[styles.detailAvatarWrap, { borderColor: colorBannerA }]}>
-              {selectedEvent.link_logo ? (
-                <Image source={{ uri: selectedEvent.link_logo }} style={styles.detailAvatarImage} />
-              ) : (
-                <Text style={styles.detailAvatarEmoji}>{selectedEvent.emoji || '🥳'}</Text>
-              )}
-            </View>
-
-            <View style={styles.detailBody}>
-              <Text style={styles.detailTitleCentered}>{selectedEvent.titulo}</Text>
-              <View style={styles.chipsRow}>
-                <View style={styles.chip}>
-                  <Ionicons name="calendar" size={13} color="#c9c9e0" />
-                  <Text style={styles.chipText}>{formatFecha(selectedEvent.fecha_hora)}</Text>
+              <View style={styles.detailHeaderRow}>
+                <View style={[styles.detailAvatarWrap, { borderColor: colorAcento }]}>
+                  {selectedEvent.link_logo ? (
+                    <Image source={{ uri: selectedEvent.link_logo }} style={styles.detailAvatarImage} />
+                  ) : (
+                    <Text style={styles.detailAvatarEmoji}>{selectedEvent.emoji || '🥳'}</Text>
+                  )}
                 </View>
-                <View style={styles.chip}>
-                  <Ionicons name="location" size={13} color="#c9c9e0" />
-                  <Text style={styles.chipText} numberOfLines={1}>{selectedEvent.lugar}</Text>
+
+                <View style={{ flex: 1, gap: 4 }}>
+                  <View style={styles.chipsRow}>
+                    <Chip
+                      label={selectedEvent.tipo_fiesta || 'Evento'}
+                      color={colorAcento}
+                      icon="flame"
+                    />
+                    {selectedEvent.es_byob && <Chip label="BYOB" color={C.textMuted} icon="beer" />}
+                    {selectedEvent.solo_mayores && <Chip label="+18" color={C.warning} />}
+                    {renderCoverInfo(selectedEvent.info_cover) && (
+                      <Chip
+                        label={renderCoverInfo(selectedEvent.info_cover)!}
+                        color={C.success}
+                        icon="cash"
+                      />
+                    )}
+                  </View>
+                  <Text style={T.title} numberOfLines={2}>
+                    {selectedEvent.titulo}
+                  </Text>
+                </View>
+
+                <IconButton name="close" onPress={closeCard} size={18} />
+              </View>
+
+              <View style={styles.detailMetaBox}>
+                <View style={styles.metaItem}>
+                  <Ionicons name="calendar-outline" size={16} color={colorAcento} />
+                  <Text style={T.body}>{formatFecha(selectedEvent.fecha_hora)}</Text>
+                </View>
+                <View style={styles.metaItem}>
+                  <Ionicons name="location-outline" size={16} color={colorAcento} />
+                  <Text style={T.body} numberOfLines={1}>
+                    {selectedEvent.lugar}
+                  </Text>
                 </View>
               </View>
 
-              <View style={styles.chipsRow}>
-                {selectedEvent.tipo_fiesta && (
-                  <View style={styles.chip}>
-                    <Text style={styles.chipText}>{selectedEvent.tipo_fiesta}</Text>
-                  </View>
-                )}
-                {selectedEvent.es_byob && (
-                  <View style={styles.chip}>
-                    <Text style={styles.chipText}>🍻 BYOB</Text>
-                  </View>
-                )}
-                {selectedEvent.solo_mayores && (
-                  <View style={styles.chip}>
-                    <Text style={styles.chipText}>🔞 +18</Text>
-                  </View>
-                )}
-                {renderCoverInfo(selectedEvent.info_cover) && (
-                  <View style={[styles.chip, styles.chipCover]}>
-                    <Text style={[styles.chipText, styles.chipCoverText]}>
-                      💰 {renderCoverInfo(selectedEvent.info_cover)}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <TouchableOpacity
-                activeOpacity={0.88}
+              <Button
+                title="Ver avisos y asistir"
+                icon="arrow-forward"
+                color={colorAcento}
                 onPress={() => {
                   if (session) {
                     router.push(`./fiesta/${selectedEvent.id}`);
@@ -421,73 +421,88 @@ export default function IndexScreen() {
                     setModalLoginRequerido(true);
                   }
                 }}
-              >
-                <LinearGradient
-                  colors={[colorBannerA, '#ff3b30']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.attendButton}
-                >
-                  <Text style={styles.attendButtonText}>🎉 Ver detalles / Asistir</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
+                style={{ marginTop: S.md }}
+              />
+            </ScrollView>
+          </View>
         )}
       </Animated.View>
 
+      {/* Modal de filtros */}
       <Modal visible={modalFiltros} transparent animationType="slide" onRequestClose={() => setModalFiltros(false)}>
         <View style={styles.filtrosOverlay}>
-          <View style={styles.filtrosSheet}>
+          <View style={[styles.filtrosSheet, { paddingBottom: insets.bottom + S.xxl }]}>
             <View style={styles.filtrosHeader}>
-              <Text style={styles.filtrosTitle}>Filtros</Text>
-              <TouchableOpacity onPress={() => setModalFiltros(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
+              <Text style={T.title}>Filtros</Text>
+              <IconButton name="close" onPress={() => setModalFiltros(false)} />
             </View>
 
-            <Text style={styles.filtrosLabel}>Tipo de fiesta</Text>
+            <SectionLabel>Tipo de fiesta</SectionLabel>
             <View style={styles.filtrosTiposRow}>
-              {(['todos', 'Antro', 'Callejoneada', 'Norteño'] as FiltroTipo[]).map((tipo) => (
-                <TouchableOpacity
-                  key={tipo}
-                  style={[styles.filtroChip, filtroTipo === tipo && styles.filtroChipActivo]}
-                  onPress={() => setFiltroTipo(tipo)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.filtroChipText, filtroTipo === tipo && styles.filtroChipTextActivo]}>
-                    {tipo === 'todos' ? 'Todos' : tipo}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {(['todos', 'Antro', 'Callejoneada', 'Norteño'] as FiltroTipo[]).map((tipo) => {
+                const active = filtroTipo === tipo;
+                return (
+                  <TouchableOpacity
+                    key={tipo}
+                    style={[styles.filtroChip, active && styles.filtroChipActivo]}
+                    onPress={() => {
+                      tap();
+                      setFiltroTipo(tipo);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.filtroChipText, active && styles.filtroChipTextActivo]}>
+                      {tipo === 'todos' ? 'Todos' : tipo}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
 
-            <TouchableOpacity style={styles.filtrosSwitchRow} onPress={() => setSoloByob(!soloByob)} activeOpacity={0.7}>
-              <Text style={styles.filtrosSwitchLabel}>🍺 Solo BYOB</Text>
+            <TouchableOpacity
+              style={styles.filtrosSwitchRow}
+              onPress={() => {
+                tap();
+                setSoloByob(!soloByob);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={T.bodyStrong}>🍺 Solo BYOB (Trae tu bebida)</Text>
               <Ionicons
                 name={soloByob ? 'checkbox' : 'square-outline'}
                 size={24}
-                color={soloByob ? '#ff3b30' : '#8e8e93'}
+                color={soloByob ? C.brand : C.textMuted}
               />
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.filtrosSwitchRow} onPress={() => setSoloConCover(!soloConCover)} activeOpacity={0.7}>
-              <Text style={styles.filtrosSwitchLabel}>💵 Solo con Cover</Text>
+            <TouchableOpacity
+              style={styles.filtrosSwitchRow}
+              onPress={() => {
+                tap();
+                setSoloConCover(!soloConCover);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={T.bodyStrong}>💵 Solo con Cover</Text>
               <Ionicons
                 name={soloConCover ? 'checkbox' : 'square-outline'}
                 size={24}
-                color={soloConCover ? '#ff3b30' : '#8e8e93'}
+                color={soloConCover ? C.brand : C.textMuted}
               />
             </TouchableOpacity>
 
             <View style={styles.filtrosBotonesRow}>
-              <TouchableOpacity style={styles.filtrosLimpiarBtn} onPress={limpiarFiltros} activeOpacity={0.8}>
-                <Text style={styles.filtrosLimpiarText}>Limpiar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.filtrosAplicarBtn} onPress={() => setModalFiltros(false)} activeOpacity={0.85}>
-                <Text style={styles.filtrosAplicarText}>Aplicar</Text>
-              </TouchableOpacity>
+              <Button
+                title="Limpiar"
+                variant="secondary"
+                onPress={limpiarFiltros}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Aplicar"
+                onPress={() => setModalFiltros(false)}
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
         </View>
@@ -496,7 +511,7 @@ export default function IndexScreen() {
       <ConfirmModal
         visible={modalLoginRequerido}
         title="¡Estás a un paso! 🔑"
-        message="Para unirte a la fiesta, ver los detalles y chatear, necesitas iniciar sesión."
+        message="Para unirte a la fiesta, ver los avisos y chatear, necesitas iniciar sesión."
         confirmText="Ir al Login"
         cancelText="Cancelar"
         onCancel={() => setModalLoginRequerido(false)}
@@ -510,328 +525,240 @@ export default function IndexScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: C.bg },
   map: { flex: 1 },
 
-  profileButton: {
+  topControlsRow: {
     position: 'absolute',
-    top: 60,
-    left: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(26, 26, 46, 0.85)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-    zIndex: 10,
-  },
-
-  searchBarWrapper: {
-    position: 'absolute',
-    top: 60,
-    left: 74,
-    right: 16,
+    left: S.lg,
+    right: S.lg,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: S.sm,
+    zIndex: 10,
+  },
+  profileButton: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: alpha(C.surface, 0.94),
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   searchBar: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(26, 26, 46, 0.9)',
-    borderRadius: 18,
+    backgroundColor: alpha(C.surface, 0.94),
+    borderRadius: R.lg,
     paddingHorizontal: 14,
-    height: 48,
+    height: 46,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 5,
+    borderColor: C.borderStrong,
   },
-  searchInput: { flex: 1, fontSize: 15, color: '#fff' },
+  searchInput: { flex: 1, fontSize: 15, color: C.text },
   filterButton: {
-    marginLeft: 10,
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(26, 26, 46, 0.9)',
+    width: 46,
+    height: 46,
+    borderRadius: R.lg,
+    backgroundColor: alpha(C.surface, 0.94),
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: C.borderStrong,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 5,
   },
-  filterButtonActive: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
+  filterButtonActive: { backgroundColor: C.brand, borderColor: C.brand },
   filterDot: {
     position: 'absolute',
-    top: 6,
-    right: 6,
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    top: 7,
+    right: 7,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#fff',
   },
 
   tiempoChipsWrapper: {
     position: 'absolute',
-    top: 116,
     left: 0,
     right: 0,
+    zIndex: 9,
   },
   tiempoChipsContent: {
-    paddingLeft: 74,
-    paddingRight: 16,
+    paddingHorizontal: S.lg,
     gap: 8,
+    alignItems: 'center',
   },
-  tiempoChip: {
-    backgroundColor: 'rgba(26, 26, 46, 0.9)',
+  counterBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: alpha(C.surface, 0.94),
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: R.pill,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 14,
+    borderColor: C.borderStrong,
+  },
+  liveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.success,
+  },
+  counterText: { color: C.text, fontSize: 12, fontWeight: '700' },
+  tiempoChip: {
+    backgroundColor: alpha(C.surface, 0.92),
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+    borderRadius: R.pill,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   tiempoChipActivo: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
+    backgroundColor: C.brand,
+    borderColor: C.brand,
   },
-  tiempoChipText: { color: '#c9c9e0', fontSize: 12, fontWeight: '600' },
+  tiempoChipText: { color: C.textMuted, fontSize: 12, fontWeight: '700' },
   tiempoChipTextActivo: { color: '#fff' },
-
-  counterBadge: {
-    position: 'absolute',
-    top: 164,
-    left: 74,
-    backgroundColor: 'rgba(26, 26, 46, 0.85)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  counterText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 
   pinWrapper: {
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
   pinHead: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 3,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2.5,
     borderColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    elevation: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pinHeadWithLogo: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: '#fff',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2.5,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#1c1c1e',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    elevation: 8,
+    backgroundColor: C.surface,
   },
   pinLogoImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 16,
+    borderRadius: 18,
   },
   pinTail: {
     width: 0,
     height: 0,
     borderLeftWidth: 6,
     borderRightWidth: 6,
-    borderTopWidth: 9,
+    borderTopWidth: 8,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    marginTop: -2,
+    marginTop: -1,
   },
 
-  // 🔥 detailCard ahora define un maxHeight que deja espacio real para la
-  // tab bar (evita que el botón final quede oculto/cortado), y su contenido
-  // vive dentro de un ScrollView por si en pantallas chicas no alcanza.
   detailCard: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: '#151525',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: C.surface,
+    borderTopLeftRadius: R.xl + 4,
+    borderTopRightRadius: R.xl + 4,
+    borderWidth: 1,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 14,
-    elevation: 12,
-    maxHeight: SCREEN_HEIGHT * 0.6,
+    maxHeight: SCREEN_HEIGHT * 0.62,
     zIndex: 10,
   },
   detailScrollContent: {
-    paddingBottom: Platform.OS === 'ios' ? 100 : 84, // 🔥 espacio para que no lo tape la tab bar
+    padding: S.xl,
   },
-  detailBanner: {
-    height: 130,
-    padding: 14,
-    justifyContent: 'space-between',
+  detailHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  bannerTagBadge: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  bannerTagBadgeText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
+    alignItems: 'center',
+    gap: S.md,
+    marginBottom: S.md,
   },
   detailAvatarWrap: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    backgroundColor: '#1c1c2e',
-    borderWidth: 4,
-    borderColor: '#ff3b30',
+    width: 68,
+    height: 68,
+    borderRadius: R.lg,
+    backgroundColor: C.surfaceAlt,
+    borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
-    alignSelf: 'center',
-    marginTop: -45,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 10,
-    zIndex: 12,
+    overflow: 'hidden',
   },
   detailAvatarImage: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: '100%',
+    height: '100%',
   },
   detailAvatarEmoji: {
-    fontSize: 42,
-  },
-  detailTitleCentered: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '900',
-    textAlign: 'center',
-    marginBottom: 14,
-    letterSpacing: 0.3,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 14,
-    right: 14,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 11,
-  },
-  detailBannerEmoji: {
-    fontSize: 40,
-    marginBottom: 6,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  detailBannerTitle: {
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: '800',
-    textShadowColor: 'rgba(0,0,0,0.4)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 6,
-    paddingRight: 30,
-  },
-  detailBody: {
-    padding: 20,
+    fontSize: 32,
   },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 10,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
   },
-  chipText: { color: '#c9c9e0', fontSize: 12, fontWeight: '600' },
-  chipCover: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: 'rgba(255,59,48,0.4)' },
-  chipCoverText: { color: '#ff6b60' },
-  attendButton: {
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+  detailMetaBox: {
+    backgroundColor: alpha(C.bg, 0.55),
+    borderRadius: R.md,
+    padding: S.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: 6,
+  },
+  metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 14,
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
+    gap: 8,
   },
-  attendButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 
-  filtrosOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-  filtrosSheet: { backgroundColor: '#151525', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40 },
-  filtrosHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  filtrosTitle: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  filtrosLabel: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 10 },
-  filtrosTiposRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
-  filtroChip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  filtroChipActivo: { backgroundColor: 'rgba(255,59,48,0.15)', borderColor: '#ff3b30' },
-  filtroChipText: { color: '#8a8aa3', fontSize: 13, fontWeight: '600' },
-  filtroChipTextActivo: { color: '#ff3b30' },
-  filtrosSwitchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 14, marginBottom: 10 },
-  filtrosSwitchLabel: { color: '#fff', fontSize: 15 },
-  filtrosBotonesRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  filtrosLimpiarBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  filtrosLimpiarText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  filtrosAplicarBtn: { flex: 1, backgroundColor: '#ff3b30', borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  filtrosAplicarText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  filtrosOverlay: { flex: 1, backgroundColor: C.overlay, justifyContent: 'flex-end' },
+  filtrosSheet: {
+    backgroundColor: C.surface,
+    borderTopLeftRadius: R.xl,
+    borderTopRightRadius: R.xl,
+    padding: S.xl,
+    borderTopWidth: 1,
+    borderColor: C.borderStrong,
+  },
+  filtrosHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: S.lg,
+  },
+  filtrosTiposRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: S.lg },
+  filtroChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: R.md,
+    backgroundColor: C.surfaceAlt,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  filtroChipActivo: { backgroundColor: alpha(C.brand, 0.16), borderColor: C.brand },
+  filtroChipText: { color: C.textMuted, fontSize: 13, fontWeight: '600' },
+  filtroChipTextActivo: { color: C.brand, fontWeight: '700' },
+  filtrosSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.md,
+    paddingHorizontal: S.lg,
+    paddingVertical: 14,
+    marginBottom: S.sm,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  filtrosBotonesRow: { flexDirection: 'row', gap: S.sm, marginTop: S.lg },
 });

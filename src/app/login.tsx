@@ -5,16 +5,19 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../supabase';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
+import { Button, Card, FiestaGlow, SectionLabel, tap } from '../components/ui/kit';
+import { C, R, S, T } from '../constants/design';
+import { alpha } from '../utils/colors';
 
 interface PasswordStrength {
   checks: {
@@ -32,6 +35,7 @@ interface PasswordStrength {
 
 export default function LoginScreen() {
   const { showToast } = useToast();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -57,27 +61,28 @@ export default function LoginScreen() {
         checks,
         passedCount: 0,
         label: 'Requerida',
-        color: '#6c6c8a',
+        color: C.textFaint,
         percent: 0,
       };
     }
 
     if (passedCount <= 2 || !checks.length) {
-      return { checks, passedCount, label: 'Débil', color: '#ff3b30', percent: 0.25 };
+      return { checks, passedCount, label: 'Débil', color: C.danger, percent: 0.25 };
     }
     if (passedCount === 3) {
-      return { checks, passedCount, label: 'Aceptable', color: '#ff9500', percent: 0.5 };
+      return { checks, passedCount, label: 'Aceptable', color: C.warning, percent: 0.5 };
     }
     if (passedCount === 4) {
-      return { checks, passedCount, label: 'Buena', color: '#34c759', percent: 0.75 };
+      return { checks, passedCount, label: 'Buena', color: C.success, percent: 0.75 };
     }
-    return { checks, passedCount, label: 'Excelente', color: '#30d158', percent: 1.0 };
+    return { checks, passedCount, label: 'Excelente', color: C.success, percent: 1.0 };
   };
 
   const strength = getPasswordStrength(password);
   const passwordsMatch = password.length > 0 && confirmPassword.length > 0 && password === confirmPassword;
 
   const handleSwitchMode = (newMode: 'login' | 'register') => {
+    tap();
     setMode(newMode);
     setShowPassword(false);
     setShowConfirmPassword(false);
@@ -140,18 +145,22 @@ export default function LoginScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      <FiestaGlow colores={[C.brand, C.brand2]} intensity={0.28} style={{ height: 320 }} />
+
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + S.xl, paddingBottom: insets.bottom + S.xxl }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.content}>
-          <Text style={styles.emojiLogo}>🪩</Text>
-          <Text style={styles.header}>Zacatecas Party</Text>
-          <Text style={styles.subheader}>
+          <View style={styles.logoBadge}>
+            <Text style={styles.emojiLogo}>🪩</Text>
+          </View>
+          <Text style={[T.display, styles.header]}>party!</Text>
+          <Text style={[T.caption, styles.subheader]}>
             {mode === 'login'
-              ? 'Inicia sesión para administrar tus eventos.'
-              : 'Crea tu nueva cuenta para administrar tus eventos.'}
+              ? 'Inicia sesión para unirte a las fiestas y administrar tus eventos.'
+              : 'Crea tu cuenta para descubrir y organizar las mejores fiestas.'}
           </Text>
 
           {/* Selector de modo */}
@@ -177,24 +186,24 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.form}>
-            <Text style={styles.label}>Correo Electrónico</Text>
+          <Card style={styles.formCard}>
+            <SectionLabel>Correo Electrónico</SectionLabel>
             <TextInput
               style={styles.input}
               placeholder="memo@ejemplo.com"
-              placeholderTextColor="#8e8e93"
+              placeholderTextColor={C.textFaint}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
             />
 
-            <Text style={styles.label}>Contraseña</Text>
+            <SectionLabel>Contraseña</SectionLabel>
             <View style={styles.passwordContainer}>
               <TextInput
                 style={styles.passwordInput}
-                placeholder="********"
-                placeholderTextColor="#8e8e93"
+                placeholder="••••••••"
+                placeholderTextColor={C.textFaint}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -208,21 +217,20 @@ export default function LoginScreen() {
               >
                 <Ionicons
                   name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={22}
-                  color="#8e8e93"
+                  size={20}
+                  color={C.textMuted}
                 />
               </TouchableOpacity>
             </View>
 
-            {/* Campo Confirmar Contraseña (solo en modo registro) */}
             {mode === 'register' && (
               <>
-                <Text style={styles.label}>Confirmar Contraseña</Text>
+                <SectionLabel>Confirmar Contraseña</SectionLabel>
                 <View style={styles.passwordContainer}>
                   <TextInput
                     style={styles.passwordInput}
-                    placeholder="********"
-                    placeholderTextColor="#8e8e93"
+                    placeholder="••••••••"
+                    placeholderTextColor={C.textFaint}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
                     secureTextEntry={!showConfirmPassword}
@@ -240,162 +248,80 @@ export default function LoginScreen() {
                   >
                     <Ionicons
                       name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
-                      size={22}
-                      color="#8e8e93"
+                      size={20}
+                      color={C.textMuted}
                     />
                   </TouchableOpacity>
+                </View>
+
+                <View style={styles.verifierCard}>
+                  <View style={styles.verifierHeader}>
+                    <Text style={T.micro}>REQUISITOS DE SEGURIDAD</Text>
+                    {password.length > 0 && (
+                      <View style={[styles.badge, { backgroundColor: alpha(strength.color, 0.16) }]}>
+                        <Text style={[styles.badgeText, { color: strength.color }]}>
+                          {strength.label}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={styles.strengthBarTrack}>
+                    <View
+                      style={[
+                        styles.strengthBarFill,
+                        {
+                          width: `${strength.percent * 100}%`,
+                          backgroundColor: strength.color,
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <View style={styles.checklist}>
+                    {[
+                      { ok: strength.checks.length, label: 'Mínimo 8 caracteres' },
+                      { ok: strength.checks.hasUpper, label: 'Una letra mayúscula (A-Z)' },
+                      { ok: strength.checks.hasNumber, label: 'Un número (0-9)' },
+                      { ok: strength.checks.hasSpecial, label: 'Un carácter especial (!@#$%...)' },
+                      { ok: passwordsMatch, label: 'Las contraseñas coinciden' },
+                    ].map((item) => (
+                      <View key={item.label} style={styles.checkItem}>
+                        <Ionicons
+                          name={item.ok ? 'checkmark-circle' : 'ellipse-outline'}
+                          size={17}
+                          color={item.ok ? C.success : C.textFaint}
+                        />
+                        <Text style={[styles.checkText, item.ok && styles.checkTextActive]}>
+                          {item.label}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               </>
             )}
 
-            {/* Verificador de Contraseña (solo en modo registro) */}
-            {mode === 'register' && (
-              <View style={styles.verifierCard}>
-                <View style={styles.verifierHeader}>
-                  <Text style={styles.verifierTitle}>Requisitos de seguridad</Text>
-                  {password.length > 0 && (
-                    <View style={[styles.badge, { backgroundColor: `${strength.color}22` }]}>
-                      <Text style={[styles.badgeText, { color: strength.color }]}>
-                        {strength.label}
-                      </Text>
-                    </View>
-                  )}
-                </View>
+            <Button
+              title={mode === 'login' ? 'Iniciar Sesión' : 'Crear mi cuenta'}
+              icon={mode === 'login' ? 'log-in-outline' : 'sparkles-outline'}
+              loading={loading}
+              onPress={mode === 'login' ? iniciarSesion : registrarse}
+              style={{ marginTop: S.xs }}
+            />
+          </Card>
 
-                {/* Barra de progreso de fortaleza */}
-                <View style={styles.strengthBarTrack}>
-                  <View
-                    style={[
-                      styles.strengthBarFill,
-                      {
-                        width: `${strength.percent * 100}%`,
-                        backgroundColor: strength.color,
-                      },
-                    ]}
-                  />
-                </View>
-
-                {/* Lista de requisitos */}
-                <View style={styles.checklist}>
-                  <View style={styles.checkItem}>
-                    <Ionicons
-                      name={strength.checks.length ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={strength.checks.length ? '#30d158' : '#545458'}
-                    />
-                    <Text
-                      style={[
-                        styles.checkText,
-                        strength.checks.length && styles.checkTextActive,
-                      ]}
-                    >
-                      Mínimo 8 caracteres
-                    </Text>
-                  </View>
-
-                  <View style={styles.checkItem}>
-                    <Ionicons
-                      name={strength.checks.hasUpper ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={strength.checks.hasUpper ? '#30d158' : '#545458'}
-                    />
-                    <Text
-                      style={[
-                        styles.checkText,
-                        strength.checks.hasUpper && styles.checkTextActive,
-                      ]}
-                    >
-                      Una letra mayúscula (A-Z)
-                    </Text>
-                  </View>
-
-                  <View style={styles.checkItem}>
-                    <Ionicons
-                      name={strength.checks.hasNumber ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={strength.checks.hasNumber ? '#30d158' : '#545458'}
-                    />
-                    <Text
-                      style={[
-                        styles.checkText,
-                        strength.checks.hasNumber && styles.checkTextActive,
-                      ]}
-                    >
-                      Un número (0-9)
-                    </Text>
-                  </View>
-
-                  <View style={styles.checkItem}>
-                    <Ionicons
-                      name={strength.checks.hasSpecial ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={strength.checks.hasSpecial ? '#30d158' : '#545458'}
-                    />
-                    <Text
-                      style={[
-                        styles.checkText,
-                        strength.checks.hasSpecial && styles.checkTextActive,
-                      ]}
-                    >
-                      Un carácter especial (!@#$%...)
-                    </Text>
-                  </View>
-
-                  <View style={styles.checkItem}>
-                    <Ionicons
-                      name={passwordsMatch ? 'checkmark-circle' : 'ellipse-outline'}
-                      size={18}
-                      color={passwordsMatch ? '#30d158' : '#545458'}
-                    />
-                    <Text
-                      style={[
-                        styles.checkText,
-                        passwordsMatch && styles.checkTextActive,
-                      ]}
-                    >
-                      Las contraseñas coinciden
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {loading ? (
-              <ActivityIndicator size="large" color="#ff3b30" style={{ marginTop: 20 }} />
-            ) : (
-              <>
-                {mode === 'login' ? (
-                  <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={iniciarSesion}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.primaryButtonText}>Iniciar Sesión</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.primaryButton}
-                    onPress={registrarse}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.primaryButtonText}>Crear mi cuenta</Text>
-                  </TouchableOpacity>
-                )}
-
-                <TouchableOpacity
-                  style={styles.switchModeButton}
-                  onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.switchModeText}>
-                    {mode === 'login'
-                      ? '¿No tienes cuenta? Regístrate aquí'
-                      : '¿Ya tienes cuenta? Inicia sesión'}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
+          <TouchableOpacity
+            style={styles.switchModeButton}
+            onPress={() => handleSwitchMode(mode === 'login' ? 'register' : 'login')}
+            activeOpacity={0.7}
+          >
+            <Text style={T.caption}>
+              {mode === 'login'
+                ? '¿No tienes cuenta? Regístrate aquí'
+                : '¿Ya tienes cuenta? Inicia sesión'}
+            </Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -413,84 +339,97 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000' },
+  container: { flex: 1, backgroundColor: C.bg },
   scrollContent: { flexGrow: 1, justifyContent: 'center' },
-  content: { padding: 24 },
-  emojiLogo: { fontSize: 60, textAlign: 'center', marginBottom: 16 },
-  header: { color: '#fff', fontSize: 32, fontWeight: 'bold', textAlign: 'center', marginBottom: 8 },
-  subheader: { color: '#8e8e93', fontSize: 15, textAlign: 'center', marginBottom: 28, paddingHorizontal: 16 },
-  
+  content: { paddingHorizontal: S.xl },
+  logoBadge: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: alpha(C.brand, 0.14),
+    borderWidth: 1,
+    borderColor: alpha(C.brand, 0.35),
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: S.md,
+  },
+  emojiLogo: { fontSize: 38 },
+  header: { textAlign: 'center', marginBottom: S.xs },
+  subheader: { textAlign: 'center', marginBottom: S.xl, paddingHorizontal: S.lg },
+
   tabContainer: {
     flexDirection: 'row',
-    backgroundColor: '#1c1c1e',
-    borderRadius: 14,
+    backgroundColor: C.surface,
+    borderRadius: R.lg,
     padding: 4,
-    marginBottom: 24,
+    marginBottom: S.lg,
     borderWidth: 1,
-    borderColor: '#2c2c2e',
+    borderColor: C.border,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 11,
     alignItems: 'center',
-    borderRadius: 10,
+    borderRadius: R.md,
   },
   tabButtonActive: {
-    backgroundColor: '#2c2c2e',
+    backgroundColor: C.surfaceHigh,
   },
   tabText: {
-    color: '#8e8e93',
+    color: C.textMuted,
     fontSize: 14,
     fontWeight: '600',
   },
   tabTextActive: {
-    color: '#fff',
+    color: C.text,
     fontWeight: '700',
   },
 
-  form: { width: '100%' },
-  label: { color: '#fff', fontSize: 14, fontWeight: '600', marginBottom: 8, marginLeft: 4 },
+  formCard: {
+    padding: S.xl,
+  },
   input: {
-    backgroundColor: '#1c1c1e',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    color: '#fff',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.md,
+    paddingHorizontal: S.lg,
+    paddingVertical: 14,
+    color: C.text,
     fontSize: 15,
     borderWidth: 1,
-    borderColor: '#2c2c2e',
-    marginBottom: 20,
+    borderColor: C.border,
+    marginBottom: S.lg,
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1c1e',
-    borderRadius: 14,
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.md,
     borderWidth: 1,
-    borderColor: '#2c2c2e',
-    marginBottom: 20,
+    borderColor: C.border,
+    marginBottom: S.lg,
   },
   passwordInput: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    color: '#fff',
+    paddingHorizontal: S.lg,
+    paddingVertical: 14,
+    color: C.text,
     fontSize: 15,
   },
   eyeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: S.lg,
+    paddingVertical: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   verifierCard: {
-    backgroundColor: '#161618',
-    borderRadius: 14,
-    padding: 16,
+    backgroundColor: C.bg,
+    borderRadius: R.md,
+    padding: S.lg,
     borderWidth: 1,
-    borderColor: '#2c2c2e',
-    marginBottom: 20,
+    borderColor: C.border,
+    marginBottom: S.lg,
   },
   verifierHeader: {
     flexDirection: 'row',
@@ -498,17 +437,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
   },
-  verifierTitle: {
-    color: '#8e8e93',
-    fontSize: 13,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
   badge: {
     paddingHorizontal: 10,
     paddingVertical: 3,
-    borderRadius: 12,
+    borderRadius: R.pill,
   },
   badgeText: {
     fontSize: 12,
@@ -516,10 +448,10 @@ const styles = StyleSheet.create({
   },
   strengthBarTrack: {
     height: 6,
-    backgroundColor: '#2c2c2e',
+    backgroundColor: C.surfaceHigh,
     borderRadius: 3,
     overflow: 'hidden',
-    marginBottom: 16,
+    marginBottom: S.md,
   },
   strengthBarFill: {
     height: '100%',
@@ -534,33 +466,17 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   checkText: {
-    color: '#545458',
+    color: C.textFaint,
     fontSize: 13,
     fontWeight: '500',
   },
   checkTextActive: {
-    color: '#e5e5ea',
+    color: C.text,
     fontWeight: '600',
   },
-
-  primaryButton: {
-    backgroundColor: '#ff3b30',
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   switchModeButton: {
-    paddingVertical: 16,
+    paddingVertical: S.lg,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: S.xs,
   },
-  switchModeText: { color: '#8e8e93', fontSize: 14, fontWeight: '600' },
 });
-

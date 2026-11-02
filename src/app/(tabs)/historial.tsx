@@ -1,9 +1,13 @@
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { StyleSheet, View, Text, FlatList, ActivityIndicator, Linking, Image } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../supabase';
 import { useFocusEffect, router } from 'expo-router';
 import { useToast } from '../../components/Toast';
+import { Button, Card, Chip, EmptyState, FiestaGlow, ScreenHeader } from '../../components/ui/kit';
+import { C, R, S, T } from '../../constants/design';
+import { useColoresFiesta, alpha } from '../../utils/colors';
 
 export interface HistorialItem {
   id: string; // evento_id
@@ -12,29 +16,74 @@ export interface HistorialItem {
   fecha: string;
   lugar: string;
   link_fotos?: string;
+  link_logo?: string;
+  tipo_fiesta?: string;
+  colores?: string[] | null;
 }
 
-// -----------------------------------------------------------------------
-// Mismas paletas tipo pintura líquida que en chats.tsx, para que ambas
-// pantallas se sientan parte de la misma identidad visual.
-// -----------------------------------------------------------------------
-const PALETAS = [
-  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
-  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
-  ['#7B9E43', '#F4D35E', '#3D2B1F'],
-  ['#118AB2', '#06D6A0', '#FFD166'],
-  ['#3A86FF', '#8AC926', '#FFCA3A'],
-  ['#5EC6C0', '#2D3142', '#F4D35E'],
-];
+function HistorialTicketCard({
+  item,
+  onAbrirFotos,
+}: {
+  item: HistorialItem;
+  onAbrirFotos: (url?: string) => void;
+}) {
+  const colores = useColoresFiesta({
+    id: item.id,
+    tipo_fiesta: item.tipo_fiesta,
+    link_logo: item.link_logo,
+    colores: item.colores,
+  });
+  const [colorPrincipal] = colores;
 
-const paletaParaId = (id: string) => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETAS[hash % PALETAS.length];
-};
+  return (
+    <Card style={[styles.card, { borderColor: alpha(colorPrincipal, 0.28) }]}>
+      <FiestaGlow colores={colores} intensity={0.42} />
+
+      <View style={styles.cardTop}>
+        <View style={[styles.avatarWrap, { borderColor: colorPrincipal }]}>
+          {item.link_logo ? (
+            <Image source={{ uri: item.link_logo }} style={styles.avatarImage} />
+          ) : (
+            <Text style={styles.avatarEmoji}>{item.emoji}</Text>
+          )}
+        </View>
+
+        <View style={{ flex: 1, gap: 4 }}>
+          <View style={styles.chipsRow}>
+            <Chip label="Ya la viviste" color={colorPrincipal} icon="checkmark-circle" />
+            {item.tipo_fiesta ? <Chip label={item.tipo_fiesta} color={C.textMuted} /> : null}
+          </View>
+          <Text style={T.subtitle} numberOfLines={1}>
+            {item.nombreEvento}
+          </Text>
+          <View style={styles.metaRow}>
+            <Ionicons name="location-outline" size={14} color={C.textMuted} />
+            <Text style={T.caption} numberOfLines={1}>
+              {item.lugar} · {item.fecha}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.cardFooter}>
+        <Button
+          title="Ver fotos del evento"
+          icon="images-outline"
+          variant={item.link_fotos ? 'primary' : 'secondary'}
+          color={colorPrincipal}
+          small
+          onPress={() => onAbrirFotos(item.link_fotos)}
+          style={{ width: '100%' }}
+        />
+      </View>
+    </Card>
+  );
+}
 
 export default function HistorialScreen() {
   const { showToast } = useToast();
+  const insets = useSafeAreaInsets();
   const [historial, setHistorial] = useState<HistorialItem[]>([]);
   const [cargando, setCargando] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -54,7 +103,7 @@ export default function HistorialScreen() {
     try {
       const { data: participaciones, error: errParticipantes } = await supabase
         .from('participantes')
-        .select('evento_id, eventos(id, titulo, lugar, fecha_hora, emoji, link_fotos)')
+        .select('evento_id, eventos(*)')
         .eq('perfil_id', perfil_id);
 
       if (errParticipantes) {
@@ -78,6 +127,9 @@ export default function HistorialScreen() {
           fecha: formatearFecha(ev.fecha_hora),
           lugar: ev.lugar || 'Lugar desconocido',
           link_fotos: ev.link_fotos,
+          link_logo: ev.link_logo,
+          tipo_fiesta: ev.tipo_fiesta,
+          colores: ev.colores,
         }));
 
       setHistorial(formateado);
@@ -113,66 +165,28 @@ export default function HistorialScreen() {
     }
     try {
       await Linking.openURL(link_fotos);
-    } catch (error) {
+    } catch {
       showToast('No se pudo abrir el enlace de fotos', 'error');
     }
-  };
-
-  const renderItem = ({ item }: { item: HistorialItem }) => {
-    const [colorA, colorB, colorC] = paletaParaId(String(item.id));
-
-    return (
-      <View style={styles.card}>
-        <LinearGradient
-          colors={[colorA, colorB, colorC]}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={styles.banner}
-        >
-          <LinearGradient
-            colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0.6, y: 0.8 }}
-            style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.35)']}
-            start={{ x: 0.3, y: 0.2 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-
-          <View style={styles.bannerTopRow}>
-            <View style={styles.badgeVivida}>
-              <Text style={styles.badgeVividaText}>✔️ Ya la viviste</Text>
-            </View>
-          </View>
-
-          <Text style={styles.bannerEmoji}>{item.emoji}</Text>
-        </LinearGradient>
-
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle} numberOfLines={1}>{item.nombreEvento}</Text>
-          <Text style={styles.cardSubtitle}>📍 {item.lugar} · {item.fecha}</Text>
-
-          <TouchableOpacity style={styles.photosButton} activeOpacity={0.75} onPress={() => abrirFotos(item.link_fotos)}>
-            <Text style={styles.photosButtonText}>📸 Ver fotos del evento</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
   };
 
   if (!userId && !cargando) {
     return (
       <View style={styles.container}>
-        <Text style={styles.header}>Historial 🕓</Text>
-        <Text style={styles.subheader}>Fiestas a las que ya fuiste</Text>
+        <ScreenHeader title="Historial" subtitle="Fiestas a las que ya fuiste" />
         <View style={styles.centerContent}>
-          <Text style={styles.emptyText}>Inicia sesión para ver tu historial</Text>
-          <TouchableOpacity style={styles.loginBtn} onPress={() => router.push('/login')} activeOpacity={0.85}>
-            <Text style={styles.loginBtnText}>Ir a Iniciar Sesión</Text>
-          </TouchableOpacity>
+          <EmptyState
+            icon="time-outline"
+            title="Inicia sesión para ver tu historial"
+            message="Aquí se guardan los recuerdos y álbumes de las fiestas a las que asististe."
+            action={
+              <Button
+                title="Ir a Iniciar Sesión"
+                icon="log-in-outline"
+                onPress={() => router.push('/login')}
+              />
+            }
+          />
         </View>
       </View>
     );
@@ -180,25 +194,31 @@ export default function HistorialScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Historial 🕓</Text>
-      <Text style={styles.subheader}>Fiestas a las que ya fuiste</Text>
+      <ScreenHeader title="Historial" subtitle="Fiestas a las que ya fuiste" />
 
       {cargando ? (
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#ff3b30" />
+          <ActivityIndicator size="large" color={C.brand} />
         </View>
       ) : (
         <FlatList
           data={historial}
           keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <HistorialTicketCard item={item} onAbrirFotos={abrirFotos} />
+          )}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: insets.bottom + 100 },
+          ]}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.centerContent}>
-              <Text style={styles.emptyEmoji}>🕓</Text>
-              <Text style={styles.emptyText}>Aún no tienes fiestas en tu historial</Text>
-              <Text style={styles.emptySubtext}>Cuando termine una fiesta a la que asististe, aparecerá aquí.</Text>
+              <EmptyState
+                icon="time-outline"
+                title="Aún no tienes fiestas en tu historial"
+                message="Cuando termine una fiesta a la que asististe, aparecerá aquí."
+              />
             </View>
           }
         />
@@ -208,55 +228,50 @@ export default function HistorialScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#000', paddingTop: 70 },
-  header: { color: '#fff', fontSize: 28, fontWeight: 'bold', paddingHorizontal: 24 },
-  subheader: { color: '#8e8e93', fontSize: 14, paddingHorizontal: 24, marginBottom: 20 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 40, flexGrow: 1 },
-  centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 30, paddingTop: 60 },
-  emptyEmoji: { fontSize: 44, marginBottom: 10 },
-  emptyText: { color: '#8e8e93', fontSize: 14, textAlign: 'center' },
-  emptySubtext: { color: '#636366', fontSize: 12, textAlign: 'center', marginTop: 6 },
-  loginBtn: { backgroundColor: '#ff3b30', borderRadius: 14, paddingHorizontal: 24, paddingVertical: 14, marginTop: 20 },
-  loginBtnText: { color: '#fff', fontWeight: 'bold' },
-
+  container: { flex: 1, backgroundColor: C.bg },
+  listContent: { paddingHorizontal: S.xl, paddingTop: S.xs, flexGrow: 1 },
+  centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   card: {
-    borderRadius: 22,
-    marginBottom: 18,
-    backgroundColor: '#1c1c1e',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 8,
+    marginBottom: S.md,
+    padding: S.lg,
+    gap: S.md,
   },
-  banner: {
-    height: 150,
-    justifyContent: 'space-between',
-    padding: 14,
-  },
-  bannerTopRow: {
+  cardTop: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: S.md,
   },
-  badgeVivida: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+  avatarWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: R.lg,
+    backgroundColor: C.surfaceAlt,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
-  badgeVividaText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  bannerEmoji: {
-    fontSize: 56,
-    alignSelf: 'center',
-    textShadowColor: 'rgba(0,0,0,0.25)',
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 6,
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
-
-  cardInfo: { padding: 16 },
-  cardTitle: { color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 4 },
-  cardSubtitle: { color: '#a1a1a6', fontSize: 13, marginBottom: 14 },
-  photosButton: { backgroundColor: '#2c2c2e', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  photosButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  avatarEmoji: {
+    fontSize: 30,
+  },
+  chipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  cardFooter: {
+    paddingTop: S.xs,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
 });

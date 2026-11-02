@@ -1,11 +1,14 @@
 import React from 'react';
 import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { ToastProvider } from '../components/Toast';
+import { C } from '../constants/design';
 
 export default function RootLayout() {
   return (
     <ToastProvider>
-      <Stack screenOptions={{ headerShown: false }}>
+      <StatusBar style="light" />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
         {/* Carga la carpeta de tabs por defecto */}
         <Stack.Screen name="(tabs)" />
         {/* Carga el login como una pantalla emergente */}

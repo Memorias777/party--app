@@ -1,10 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -14,82 +12,22 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
 import ImageViewer from '../../components/ImageViewer';
 import { useToast } from '../../components/Toast';
+import { Button, Card, Chip, EmptyState, FiestaGlow, IconButton, tap } from '../../components/ui/kit';
+import { C, R, S, T } from '../../constants/design';
+import { alpha, textoSobre, useColoresFiesta } from '../../utils/colors';
 import { seleccionarYSubirImagen } from '../../utils/uploadImage';
-import { paletaParaFiesta } from '../../utils/colors';
-
-// Misma familia de paletas "pintura líquida" del resto de la app —
-// cada fiesta usa siempre la misma, coherente con el mapa y la lista.
-const PALETAS = [
-  ['#0FC2C0', '#F4D35E', '#EDEEC9'],
-  ['#2EC4B6', '#FFFFFF', '#FF9F1C'],
-  ['#7B9E43', '#F4D35E', '#3D2B1F'],
-  ['#118AB2', '#06D6A0', '#FFD166'],
-  ['#3A86FF', '#8AC926', '#FFCA3A'],
-  ['#5EC6C0', '#2D3142', '#F4D35E'],
-];
-
-const paletaParaId = (id: string) => {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  return PALETAS[hash % PALETAS.length];
-};
-
-// -----------------------------------------------------------------------
-// Header animado: gradiente en movimiento infinito con el color propio
-// de esta fiesta (mismo patrón "ola sin cortes" del resto de la app).
-// -----------------------------------------------------------------------
-function HeaderVivo({ colores }: { colores: string[] }) {
-  const shift = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(shift, { toValue: 1, duration: 5000, useNativeDriver: true }),
-        Animated.timing(shift, { toValue: 0, duration: 5000, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [shift]);
-
-  const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [-40, 40] });
-
-  return (
-    <View style={StyleSheet.absoluteFill}>
-      <Animated.View
-        style={{
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          left: -60,
-          right: -60,
-          transform: [{ translateX }],
-        }}
-      >
-        <LinearGradient
-          colors={[colores[0], colores[1], colores[2], colores[1], colores[0]] as any}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      </Animated.View>
-      <LinearGradient
-        colors={['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.5)']}
-        style={StyleSheet.absoluteFill}
-      />
-    </View>
-  );
-}
 
 export default function FiestaDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { showToast } = useToast();
 
   const scrollViewRef = useRef<ScrollView>(null);
@@ -122,6 +60,10 @@ export default function FiestaDetailScreen() {
 
   // Foto abierta en el visor a pantalla completa (null = cerrado)
   const [fotoVisor, setFotoVisor] = useState<string | null>(null);
+
+  const coloresFiesta = useColoresFiesta(evento || { id: String(id) });
+  const [colorAcento] = coloresFiesta;
+  const fgSobreAcento = textoSobre(colorAcento);
 
   useEffect(() => {
     const iniciarSala = async () => {
@@ -290,6 +232,7 @@ export default function FiestaDetailScreen() {
     const esMio = msg.perfil_id === userId;
     const esAdmin = evento?.creador_id === userId;
     if (esMio || esAdmin) {
+      tap();
       setMensajeSeleccionado(msg);
       setModalMenuMsg(true);
     }
@@ -345,6 +288,7 @@ export default function FiestaDetailScreen() {
 
   const abrirFoto = (url?: string) => {
     if (!url) return;
+    tap();
     setFotoVisor(url);
   };
 
@@ -354,19 +298,31 @@ export default function FiestaDetailScreen() {
     return fecha.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const formatearFechaEvento = (fechaISO?: string) => {
+    if (!fechaISO) return '';
+    try {
+      return new Date(fechaISO).toLocaleString('es-MX', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return '';
+    }
+  };
+
   const esAdmin = evento?.creador_id === userId;
   const puedeEscribirEnTabActual = tabActual === 'general' || esAdmin;
 
   if (cargando) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ff3b30" />
+        <ActivityIndicator size="large" color={C.brand} />
       </View>
     );
   }
-
-  const coloresFiesta = paletaParaFiesta(evento || { id: String(id) });
-  const [colorAcento] = coloresFiesta;
 
   return (
     <KeyboardAvoidingView
@@ -376,33 +332,39 @@ export default function FiestaDetailScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={styles.header}>
-        <HeaderVivo colores={coloresFiesta} />
+      {/* Header con glow de los colores del logo de la fiesta */}
+      <View style={[styles.header, { paddingTop: insets.top + S.sm }]}>
+        <FiestaGlow colores={coloresFiesta} intensity={0.65} />
 
-        <TouchableOpacity style={styles.closeIcon} onPress={() => router.back()}>
-          <Ionicons name="chevron-down" size={32} color="#fff" />
-        </TouchableOpacity>
+        <IconButton name="chevron-down" onPress={() => router.back()} bg={alpha(C.bg, 0.5)} />
 
         <View style={styles.headerTitleContainer}>
           {evento?.link_logo ? (
-            <Image source={{ uri: evento.link_logo }} style={styles.headerLogoAvatar} />
+            <Image
+              source={{ uri: evento.link_logo }}
+              style={[styles.headerLogoAvatar, { borderColor: colorAcento }]}
+            />
           ) : (
             <Text style={{ fontSize: 20, marginRight: 6 }}>{evento?.emoji || '🥳'}</Text>
           )}
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {evento?.titulo} ({asistentes} 👤)
-          </Text>
+          <View style={{ flex: 1 }}>
+            <Text style={T.subtitle} numberOfLines={1}>
+              {evento?.titulo}
+            </Text>
+            <Text style={T.caption} numberOfLines={1}>
+              {asistentes} {asistentes === 1 ? 'asistente' : 'asistentes'}
+            </Text>
+          </View>
         </View>
 
         {esAdmin ? (
-          <TouchableOpacity
-            style={styles.closeIcon}
+          <IconButton
+            name="settings-outline"
             onPress={() => router.push({ pathname: '/crear', params: { id: id } })}
-          >
-            <Ionicons name="settings-outline" size={26} color="#fff" />
-          </TouchableOpacity>
+            bg={alpha(C.bg, 0.5)}
+          />
         ) : (
-          <View style={{ width: 32 }} />
+          <View style={{ width: 40 }} />
         )}
       </View>
 
@@ -410,16 +372,53 @@ export default function FiestaDetailScreen() {
         <View style={styles.tabWrapper}>
           <View style={styles.tabContainer}>
             <TouchableOpacity
-              style={[styles.tab, tabActual === 'avisos' && styles.tabActive]}
-              onPress={() => setTabActual('avisos')}
+              style={[
+                styles.tab,
+                tabActual === 'avisos' && { backgroundColor: colorAcento },
+              ]}
+              onPress={() => {
+                tap();
+                setTabActual('avisos');
+              }}
             >
-              <Text style={[styles.tabText, tabActual === 'avisos' && styles.tabTextActive]}>📢 Avisos</Text>
+              <Ionicons
+                name="megaphone"
+                size={15}
+                color={tabActual === 'avisos' ? fgSobreAcento : C.textMuted}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  tabActual === 'avisos' && { color: fgSobreAcento, fontWeight: '700' },
+                ]}
+              >
+                Avisos
+              </Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={[styles.tab, tabActual === 'general' && styles.tabActive]}
-              onPress={() => setTabActual('general')}
+              style={[
+                styles.tab,
+                tabActual === 'general' && { backgroundColor: colorAcento },
+              ]}
+              onPress={() => {
+                tap();
+                setTabActual('general');
+              }}
             >
-              <Text style={[styles.tabText, tabActual === 'general' && styles.tabTextActive]}>💬 Chat General</Text>
+              <Ionicons
+                name="chatbubbles"
+                size={15}
+                color={tabActual === 'general' ? fgSobreAcento : C.textMuted}
+              />
+              <Text
+                style={[
+                  styles.tabText,
+                  tabActual === 'general' && { color: fgSobreAcento, fontWeight: '700' },
+                ]}
+              >
+                Chat General
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -428,7 +427,7 @@ export default function FiestaDetailScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.body}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        contentContainerStyle={{ paddingBottom: S.xxl }}
         scrollEventThrottle={16}
         onScroll={(event) => {
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
@@ -441,62 +440,144 @@ export default function FiestaDetailScreen() {
           }
         }}
       >
-        <View style={[styles.infoCard, { borderColor: colorAcento + '55' }]}>
-          {evento?.link_logo && (
+        {/* Tarjeta resumen de la fiesta siempre a la mano */}
+        <Card style={[styles.infoCard, { borderColor: alpha(colorAcento, 0.35) }]}>
+          <FiestaGlow colores={coloresFiesta} intensity={0.35} />
+          <View style={styles.infoRow}>
             <View style={[styles.heroLogoWrap, { borderColor: colorAcento }]}>
-              <Image source={{ uri: evento.link_logo }} style={styles.heroLogoImage} />
+              {evento?.link_logo ? (
+                <Image source={{ uri: evento.link_logo }} style={styles.heroLogoImage} />
+              ) : (
+                <Text style={{ fontSize: 32 }}>{evento?.emoji || '🥳'}</Text>
+              )}
             </View>
-          )}
-          <Text style={styles.infoLugar}>📍 {evento?.lugar}</Text>
-          <Text style={styles.infoDetalles}>
-            {evento?.tipo_fiesta ? `${evento.tipo_fiesta} · ` : ''}
-            {evento?.es_byob ? 'BYOB 🍻 · ' : ''}
-            {evento?.solo_mayores ? '+18 🔞' : ''}
-          </Text>
-        </View>
+
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={styles.chipsRow}>
+                {evento?.tipo_fiesta ? (
+                  <Chip label={evento.tipo_fiesta} color={colorAcento} />
+                ) : null}
+                {evento?.es_byob ? <Chip label="BYOB" color={C.textMuted} icon="beer" /> : null}
+                {evento?.solo_mayores ? <Chip label="+18" color={C.warning} /> : null}
+              </View>
+              <View style={styles.metaLine}>
+                <Ionicons name="location-outline" size={14} color={colorAcento} />
+                <Text style={T.bodyStrong} numberOfLines={1}>
+                  {evento?.lugar}
+                </Text>
+              </View>
+              {evento?.fecha_hora ? (
+                <View style={styles.metaLine}>
+                  <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
+                  <Text style={T.caption}>{formatearFechaEvento(evento.fecha_hora)}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </Card>
 
         {!esParticipante ? (
           <View style={styles.joinContainer}>
-            <View style={[styles.lockIconContainer, { backgroundColor: colorAcento + '22' }]}>
-              <Ionicons name="lock-closed" size={40} color={colorAcento} />
+            <View style={[styles.lockIconContainer, { backgroundColor: alpha(colorAcento, 0.16) }]}>
+              <Ionicons name="lock-closed" size={36} color={colorAcento} />
             </View>
-            <Text style={styles.joinTitle}>Chat Privado</Text>
-            <Text style={styles.joinText}>
-              Únete a esta fiesta para confirmar tu asistencia, ver los mensajes y enterarte de los avisos.
+            <Text style={T.title}>Sala de la Fiesta</Text>
+            <Text style={[T.caption, styles.joinText]}>
+              Únete a esta fiesta para confirmar tu asistencia, ver los avisos oficiales y participar en el chat.
             </Text>
-            <TouchableOpacity
-              style={[styles.joinButton, { backgroundColor: colorAcento }]}
+            <Button
+              title="Unirme a la Fiesta"
+              icon="sparkles"
+              color={colorAcento}
+              loading={uniendo}
               onPress={() => setModalUnirse(true)}
-              disabled={uniendo}
-            >
-              {uniendo ? <ActivityIndicator color="#fff" /> : <Text style={styles.joinButtonText}>🥳 Unirme a la Fiesta</Text>}
-            </TouchableOpacity>
+              style={{ width: '100%' }}
+            />
           </View>
         ) : (
           <View style={styles.chatArea}>
             {mensajes.length === 0 ? (
-              <View style={styles.chatPlaceholder}>
-                <Ionicons name={tabActual === 'general' ? 'chatbubbles-outline' : 'megaphone-outline'} size={50} color="#3a3a3c" />
-                <Text style={styles.placeholderText}>
-                  {tabActual === 'general' ? 'El chat está vacío.\n¡Rompe el hielo!' : 'Aún no hay avisos del administrador.'}
-                </Text>
-              </View>
+              <EmptyState
+                icon={tabActual === 'general' ? 'chatbubbles-outline' : 'megaphone-outline'}
+                title={
+                  tabActual === 'general'
+                    ? 'El chat está vacío'
+                    : 'Aún no hay avisos del organizador'
+                }
+                message={
+                  tabActual === 'general'
+                    ? '¡Rompe el hielo con el primer mensaje!'
+                    : 'Aquí aparecerán los anuncios importantes, ubicación exacta y fotos oficiales.'
+                }
+              />
             ) : (
               mensajes.map((msg, index) => {
                 const esMio = msg.perfil_id === userId;
+
+                if (tabActual === 'avisos') {
+                  return (
+                    <Card
+                      key={msg.id || index}
+                      onLongPress={() => handleLongPressMensaje(msg)}
+                      style={[
+                        styles.avisoCard,
+                        { borderLeftColor: colorAcento, borderColor: alpha(colorAcento, 0.25) },
+                      ]}
+                    >
+                      <View style={styles.avisoHeader}>
+                        <View style={[styles.avisoBadge, { backgroundColor: alpha(colorAcento, 0.16) }]}>
+                          <Ionicons name="megaphone" size={13} color={colorAcento} />
+                          <Text style={[styles.avisoBadgeText, { color: colorAcento }]}>
+                            AVISO OFICIAL
+                          </Text>
+                        </View>
+                        <Text style={T.micro}>{formatearHora(msg.creado_en)}</Text>
+                      </View>
+
+                      {msg.link_foto ? (
+                        <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
+                          <Image source={{ uri: msg.link_foto }} style={styles.avisoImagen} />
+                        </TouchableOpacity>
+                      ) : null}
+
+                      {msg.contenido ? <Text style={T.body}>{msg.contenido}</Text> : null}
+                    </Card>
+                  );
+                }
+
                 return (
-                  <View key={msg.id || index} style={[styles.burbujaContenedor, esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena]}>
+                  <View
+                    key={msg.id || index}
+                    style={[
+                      styles.burbujaContenedor,
+                      esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena,
+                    ]}
+                  >
                     <TouchableOpacity
                       activeOpacity={0.85}
                       onLongPress={() => handleLongPressMensaje(msg)}
-                      style={[styles.burbuja, esMio ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 } : styles.burbujaAjena]}
+                      style={[
+                        styles.burbuja,
+                        esMio
+                          ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 }
+                          : styles.burbujaAjena,
+                      ]}
                     >
                       {msg.link_foto ? (
                         <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
                           <Image source={{ uri: msg.link_foto }} style={styles.mensajeImagen} />
                         </TouchableOpacity>
                       ) : null}
-                      {msg.contenido ? <Text style={styles.mensajeTexto}>{msg.contenido}</Text> : null}
+                      {msg.contenido ? (
+                        <Text
+                          style={[
+                            styles.mensajeTexto,
+                            { color: esMio ? fgSobreAcento : C.text },
+                          ]}
+                        >
+                          {msg.contenido}
+                        </Text>
+                      ) : null}
                     </TouchableOpacity>
                     <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
                   </View>
@@ -508,14 +589,17 @@ export default function FiestaDetailScreen() {
       </ScrollView>
 
       {esParticipante && puedeEscribirEnTabActual && (
-        <View style={styles.inputWrapper}>
+        <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, S.md) }]}>
           {fotoAdjuntaUrl && (
             <View style={styles.fotoAdjuntaContainer}>
               <View style={styles.fotoAdjuntaChip}>
                 <Image source={{ uri: fotoAdjuntaUrl }} style={styles.fotoAdjuntaMinia} />
-                <Text style={styles.fotoAdjuntaText}>Foto adjunta</Text>
-                <TouchableOpacity onPress={() => setFotoAdjuntaUrl(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  <Ionicons name="close-circle" size={20} color="#ff3b30" />
+                <Text style={T.bodyStrong}>Foto adjunta</Text>
+                <TouchableOpacity
+                  onPress={() => setFotoAdjuntaUrl(null)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Ionicons name="close-circle" size={20} color={C.danger} />
                 </TouchableOpacity>
               </View>
             </View>
@@ -523,7 +607,7 @@ export default function FiestaDetailScreen() {
           <View style={styles.inputContainer}>
             {tabActual === 'avisos' && esAdmin && (
               <TouchableOpacity
-                style={styles.fotoButton}
+                style={[styles.fotoButton, { backgroundColor: alpha(colorAcento, 0.14) }]}
                 onPress={handleSubirFotoAviso}
                 disabled={subiendoFoto}
                 activeOpacity={0.7}
@@ -531,57 +615,87 @@ export default function FiestaDetailScreen() {
                 {subiendoFoto ? (
                   <ActivityIndicator size="small" color={colorAcento} />
                 ) : (
-                  <Ionicons name="camera" size={24} color={colorAcento} />
+                  <Ionicons name="camera" size={22} color={colorAcento} />
                 )}
               </TouchableOpacity>
             )}
             <TextInput
               style={styles.inputBox}
-              placeholder={tabActual === 'avisos' ? 'Escribe un aviso oficial...' : 'Escribe un mensaje...'}
-              placeholderTextColor="#8e8e93"
+              placeholder={
+                tabActual === 'avisos' ? 'Escribe un aviso oficial...' : 'Escribe un mensaje...'
+              }
+              placeholderTextColor={C.textFaint}
               value={nuevoMensaje}
               onChangeText={setNuevoMensaje}
               multiline
             />
             <TouchableOpacity
-              style={[styles.sendButton, { backgroundColor: colorAcento }, (!nuevoMensaje.trim() && !fotoAdjuntaUrl) || enviando ? { opacity: 0.5 } : null]}
+              style={[
+                styles.sendButton,
+                { backgroundColor: colorAcento },
+                (!nuevoMensaje.trim() && !fotoAdjuntaUrl) || enviando ? { opacity: 0.45 } : null,
+              ]}
               onPress={enviarMensaje}
               disabled={(!nuevoMensaje.trim() && !fotoAdjuntaUrl) || enviando}
             >
-              {enviando ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
+              {enviando ? (
+                <ActivityIndicator size="small" color={fgSobreAcento} />
+              ) : (
+                <Ionicons name="send" size={18} color={fgSobreAcento} />
+              )}
             </TouchableOpacity>
           </View>
         </View>
       )}
 
       {/* Modal Menú Contextual (onLongPress) */}
-      <Modal visible={modalMenuMsg} transparent animationType="fade" onRequestClose={() => setModalMenuMsg(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalMenuMsg(false)}>
+      <Modal
+        visible={modalMenuMsg}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalMenuMsg(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setModalMenuMsg(false)}
+        >
           <View style={styles.menuContainer}>
-            <Text style={styles.menuTitle}>Opciones de mensaje</Text>
+            <Text style={[T.micro, { textAlign: 'center', marginBottom: S.md }]}>
+              OPCIONES DE MENSAJE
+            </Text>
 
             <TouchableOpacity style={styles.menuOption} onPress={abrirModalEditar}>
-              <Ionicons name="pencil" size={20} color="#fff" style={{ marginRight: 12 }} />
-              <Text style={styles.menuOptionText}>Editar</Text>
+              <Ionicons name="pencil" size={20} color={C.text} style={{ marginRight: 12 }} />
+              <Text style={T.bodyStrong}>Editar</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.menuOption} onPress={confirmarBorrarMensaje}>
-              <Ionicons name="trash-outline" size={20} color="#ff3b30" style={{ marginRight: 12 }} />
-              <Text style={[styles.menuOptionText, { color: '#ff3b30' }]}>Borrar</Text>
+              <Ionicons name="trash-outline" size={20} color={C.danger} style={{ marginRight: 12 }} />
+              <Text style={[T.bodyStrong, { color: C.danger }]}>Borrar</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.menuCancelButton} onPress={() => setModalMenuMsg(false)}>
-              <Text style={styles.menuCancelText}>Cancelar</Text>
-            </TouchableOpacity>
+            <Button
+              title="Cancelar"
+              variant="secondary"
+              small
+              onPress={() => setModalMenuMsg(false)}
+              style={{ marginTop: S.md }}
+            />
           </View>
         </TouchableOpacity>
       </Modal>
 
       {/* Modal Editar Mensaje */}
-      <Modal visible={modalEditarMsg} transparent animationType="slide" onRequestClose={() => setModalEditarMsg(false)}>
+      <Modal
+        visible={modalEditarMsg}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setModalEditarMsg(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalEditContainer}>
-            <Text style={styles.modalEditTitle}>Editar mensaje</Text>
+            <Text style={[T.subtitle, { marginBottom: S.md }]}>Editar mensaje</Text>
 
             <TextInput
               style={styles.modalEditInput}
@@ -589,26 +703,26 @@ export default function FiestaDetailScreen() {
               onChangeText={setTextoEditar}
               multiline
               placeholder="Escribe el nuevo texto..."
-              placeholderTextColor="#8e8e93"
+              placeholderTextColor={C.textFaint}
               autoFocus
             />
 
             <View style={styles.modalEditButtons}>
-              <TouchableOpacity style={styles.modalEditBtnCancel} onPress={() => setModalEditarMsg(false)}>
-                <Text style={styles.modalEditBtnCancelText}>Cancelar</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalEditBtnSave, { backgroundColor: colorAcento }]}
+              <Button
+                title="Cancelar"
+                variant="secondary"
+                small
+                onPress={() => setModalEditarMsg(false)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                title="Guardar"
+                color={colorAcento}
+                small
+                loading={guardandoEdicion}
                 onPress={guardarEdicionMensaje}
-                disabled={guardandoEdicion}
-              >
-                {guardandoEdicion ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.modalEditBtnSaveText}>Guardar</Text>
-                )}
-              </TouchableOpacity>
+                style={{ flex: 1 }}
+              />
             </View>
           </View>
         </View>
@@ -631,6 +745,7 @@ export default function FiestaDetailScreen() {
         title="Borrar mensaje 🗑️"
         message="¿Estás seguro de que deseas eliminar este mensaje? Esta acción no se puede deshacer."
         confirmText="Eliminar"
+        destructive
         onCancel={() => setModalConfirmBorrarMsg(false)}
         onConfirm={borrarMensajeConfirmado}
       />
@@ -641,103 +756,263 @@ export default function FiestaDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d18' },
-  loadingContainer: { flex: 1, backgroundColor: '#0d0d18', justifyContent: 'center', alignItems: 'center' },
+  container: { flex: 1, backgroundColor: C.bg },
+  loadingContainer: { flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
+    paddingHorizontal: S.lg,
+    paddingBottom: S.md,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
     overflow: 'hidden',
+    gap: S.sm,
   },
-  closeIcon: { padding: 4 },
   headerTitleContainer: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
+    gap: 10,
   },
   headerLogoAvatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    marginRight: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.6)',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2,
   },
-  headerTitle: { color: '#fff', fontSize: 17, fontWeight: 'bold', textShadowColor: 'rgba(0,0,0,0.4)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   body: { flex: 1 },
-  infoCard: { backgroundColor: '#16162a', margin: 16, borderRadius: 16, padding: 16, borderWidth: 1, alignItems: 'center' },
+  infoCard: {
+    marginHorizontal: S.lg,
+    marginTop: S.md,
+    marginBottom: S.sm,
+    padding: S.md,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.md,
+  },
   heroLogoWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    backgroundColor: '#0d0d18',
-    marginBottom: 12,
+    width: 58,
+    height: 58,
+    borderRadius: R.lg,
+    borderWidth: 2,
+    backgroundColor: C.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
+    overflow: 'hidden',
   },
   heroLogoImage: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+    width: '100%',
+    height: '100%',
   },
-  infoLugar: { color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 6 },
-  infoDetalles: { color: '#8a8aa3', fontSize: 14 },
-  joinContainer: { alignItems: 'center', paddingHorizontal: 30, marginTop: 40 },
-  lockIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  joinTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', marginBottom: 10 },
-  joinText: { color: '#8a8aa3', fontSize: 15, textAlign: 'center', marginBottom: 30, lineHeight: 22 },
-  joinButton: { width: '100%', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
-  joinButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-  tabWrapper: { backgroundColor: '#0d0d18', paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#16162a' },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#16162a', borderRadius: 12, padding: 4 },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
-  tabActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
-  tabText: { color: '#8a8aa3', fontSize: 14, fontWeight: '600' },
-  tabTextActive: { color: '#fff' },
-  chatArea: { paddingHorizontal: 16 },
-  chatPlaceholder: { alignItems: 'center', justifyContent: 'center', marginTop: 40 },
-  placeholderText: { color: '#8a8aa3', textAlign: 'center', marginTop: 12, lineHeight: 22 },
+  chipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 2,
+  },
+  metaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+
+  joinContainer: {
+    alignItems: 'center',
+    paddingHorizontal: S.xxl,
+    marginTop: S.xxxl,
+  },
+  lockIconContainer: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: S.lg,
+  },
+  joinText: {
+    textAlign: 'center',
+    marginTop: S.sm,
+    marginBottom: S.xl,
+    lineHeight: 20,
+  },
+
+  tabWrapper: {
+    paddingHorizontal: S.lg,
+    paddingVertical: S.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: C.surface,
+    borderRadius: R.lg,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: R.md,
+  },
+  tabText: {
+    color: C.textMuted,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
+  chatArea: {
+    paddingHorizontal: S.lg,
+    paddingTop: S.sm,
+  },
+  avisoCard: {
+    padding: S.lg,
+    marginBottom: S.md,
+    borderLeftWidth: 4,
+    gap: S.sm,
+  },
+  avisoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  avisoBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: R.pill,
+  },
+  avisoBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  avisoImagen: {
+    width: '100%',
+    height: 190,
+    borderRadius: R.md,
+    resizeMode: 'cover',
+  },
+
   burbujaContenedor: { maxWidth: '80%', marginBottom: 12 },
   burbujaContenedorMia: { alignSelf: 'flex-end', alignItems: 'flex-end' },
   burbujaContenedorAjena: { alignSelf: 'flex-start', alignItems: 'flex-start' },
-  burbuja: { padding: 12, borderRadius: 16 },
-  burbujaAjena: { backgroundColor: '#22223a', borderBottomLeftRadius: 4 },
-  mensajeTexto: { color: '#fff', fontSize: 15 },
-  horaTexto: { color: '#6c6c8a', fontSize: 11, marginTop: 4, marginHorizontal: 4 },
-  mensajeImagen: { width: 220, height: 140, borderRadius: 12, marginBottom: 6, resizeMode: 'cover' },
-  inputWrapper: { backgroundColor: '#16162a', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' },
-  fotoAdjuntaContainer: { paddingHorizontal: 16, paddingTop: 10 },
-  fotoAdjuntaChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#22223a', padding: 6, paddingRight: 10, borderRadius: 10, alignSelf: 'flex-start' },
-  fotoAdjuntaMinia: { width: 32, height: 32, borderRadius: 6, marginRight: 8 },
-  fotoAdjuntaText: { color: '#fff', fontSize: 13, fontWeight: '600', marginRight: 10 },
-  inputContainer: { flexDirection: 'row', padding: 16, paddingBottom: Platform.OS === 'ios' ? 30 : 16, alignItems: 'flex-end' },
-  fotoButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: 6 },
-  inputBox: { flex: 1, backgroundColor: '#22223a', color: '#fff', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 12, marginRight: 10, maxHeight: 100 },
-  sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  menuContainer: { backgroundColor: '#1c1c2e', borderRadius: 20, width: '100%', maxWidth: 320, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  menuTitle: { color: '#8a8aa3', fontSize: 13, fontWeight: '600', textTransform: 'uppercase', marginBottom: 16, textAlign: 'center' },
-  menuOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)' },
-  menuOptionText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  menuCancelButton: { marginTop: 14, paddingTop: 10, alignItems: 'center' },
-  menuCancelText: { color: '#8a8aa3', fontSize: 15, fontWeight: '600' },
-  modalEditContainer: { backgroundColor: '#1c1c2e', borderRadius: 20, width: '100%', maxWidth: 340, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
-  modalEditTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 16 },
-  modalEditInput: { backgroundColor: '#2a2a3e', color: '#fff', borderRadius: 14, padding: 14, fontSize: 15, minHeight: 80, textAlignVertical: 'top', marginBottom: 20 },
-  modalEditButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  modalEditBtnCancel: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 10 },
-  modalEditBtnCancelText: { color: '#8a8aa3', fontSize: 15, fontWeight: '600' },
-  modalEditBtnSave: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, minWidth: 90, alignItems: 'center' },
-  modalEditBtnSaveText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+  burbuja: { padding: 12, borderRadius: R.lg },
+  burbujaAjena: {
+    backgroundColor: C.surfaceAlt,
+    borderBottomLeftRadius: 4,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  mensajeTexto: { fontSize: 15, lineHeight: 20 },
+  horaTexto: { color: C.textFaint, fontSize: 11, marginTop: 4, marginHorizontal: 4 },
+  mensajeImagen: { width: 220, height: 150, borderRadius: R.md, marginBottom: 6, resizeMode: 'cover' },
+
+  inputWrapper: {
+    backgroundColor: C.surface,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    paddingTop: S.sm,
+    paddingHorizontal: S.lg,
+  },
+  fotoAdjuntaContainer: { paddingBottom: S.sm },
+  fotoAdjuntaChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    padding: 6,
+    paddingRight: 10,
+    borderRadius: R.md,
+    alignSelf: 'flex-start',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  fotoAdjuntaMinia: { width: 34, height: 34, borderRadius: R.sm },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: S.sm,
+  },
+  fotoButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inputBox: {
+    flex: 1,
+    backgroundColor: C.surfaceAlt,
+    color: C.text,
+    borderRadius: R.xl,
+    paddingHorizontal: S.lg,
+    paddingVertical: 11,
+    maxHeight: 100,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  sendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: C.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: S.xl,
+  },
+  menuContainer: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    width: '100%',
+    maxWidth: 320,
+    padding: S.xl,
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+  },
+  menuOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  modalEditContainer: {
+    backgroundColor: C.surface,
+    borderRadius: R.xl,
+    width: '100%',
+    maxWidth: 340,
+    padding: S.xl,
+    borderWidth: 1,
+    borderColor: C.borderStrong,
+  },
+  modalEditInput: {
+    backgroundColor: C.surfaceAlt,
+    color: C.text,
+    borderRadius: R.md,
+    padding: 14,
+    fontSize: 15,
+    minHeight: 84,
+    textAlignVertical: 'top',
+    marginBottom: S.lg,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  modalEditButtons: { flexDirection: 'row', gap: S.sm },
 });

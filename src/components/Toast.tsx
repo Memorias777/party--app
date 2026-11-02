@@ -1,5 +1,8 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { C, R, S, T, shadow } from '../constants/design';
+import { alpha } from '../utils/colors';
 
 type ToastType = 'success' | 'error' | 'info';
 
@@ -19,10 +22,10 @@ const ToastContext = createContext<ToastContextValue>({
 
 export const useToast = () => useContext(ToastContext);
 
-const CONFIG: Record<ToastType, { icon: string; border: string }> = {
-  success: { icon: '✅', border: '#34c759' },
-  error: { icon: '⚠️', border: '#ff3b30' },
-  info: { icon: 'ℹ️', border: '#0a84ff' },
+const CONFIG: Record<ToastType, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
+  success: { icon: 'checkmark-circle', color: C.success },
+  error: { icon: 'alert-circle', color: C.danger },
+  info: { icon: 'information-circle', color: C.brand2 },
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -57,12 +60,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           pointerEvents="none"
           style={[styles.wrapper, { transform: [{ translateY }], opacity }]}
         >
-          <View style={[styles.toast, { borderLeftColor: CONFIG[toast.type].border }]}>
-            <Text style={styles.icon}>{CONFIG[toast.type].icon}</Text>
+          <View style={[styles.toast, shadow('#000', 10)]}>
+            <View style={[styles.iconWrap, { backgroundColor: alpha(CONFIG[toast.type].color, 0.16) }]}>
+              <Ionicons name={CONFIG[toast.type].icon} size={22} color={CONFIG[toast.type].color} />
+            </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.message} numberOfLines={2}>{toast.message}</Text>
+              <Text style={T.bodyStrong} numberOfLines={2}>{toast.message}</Text>
               {toast.subtitle ? (
-                <Text style={styles.subtitle} numberOfLines={3}>{toast.subtitle}</Text>
+                <Text style={[T.caption, { marginTop: 2 }]} numberOfLines={3}>{toast.subtitle}</Text>
               ) : null}
             </View>
           </View>
@@ -75,28 +80,28 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 56 : 30,
-    left: 16,
-    right: 16,
+    top: Platform.OS === 'ios' ? 56 : 36,
+    left: S.lg,
+    right: S.lg,
     zIndex: 999,
     elevation: 999,
   },
   toast: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1c1c1e',
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.xl,
+    paddingVertical: S.md,
+    paddingHorizontal: S.lg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
+    borderColor: C.borderStrong,
+    gap: S.md,
   },
-  icon: { fontSize: 22, marginRight: 12 },
-  message: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  subtitle: { color: '#a1a1a6', fontSize: 13, marginTop: 2 },
+  iconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
