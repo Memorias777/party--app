@@ -204,11 +204,27 @@ export default function PerfilScreen() {
             title="Explora sin cuenta o inicia sesión"
             message="Puedes ver todas las fiestas y sus detalles libremente. Inicia sesión si quieres guardar fiestas o participar en el chat."
             action={
-              <Button
-                title="Iniciar Sesión / Crear Cuenta"
-                icon="log-in-outline"
-                onPress={() => router.push('/login')}
-              />
+              <View style={{ gap: S.sm, alignItems: 'center' }}>
+                <Button
+                  title="Iniciar Sesión / Crear Cuenta"
+                  icon="log-in-outline"
+                  onPress={() => router.push('/login')}
+                />
+                <View style={{ flexDirection: 'row', gap: S.sm }}>
+                  <Button
+                    title="Privacidad"
+                    variant="secondary"
+                    small
+                    onPress={() => router.push('/privacidad')}
+                  />
+                  <Button
+                    title="Eliminar Cuenta"
+                    variant="secondary"
+                    small
+                    onPress={() => router.push('/eliminar-cuenta')}
+                  />
+                </View>
+              </View>
             }
           />
         </View>
@@ -384,6 +400,28 @@ export default function PerfilScreen() {
               <Ionicons name="chevron-forward" size={20} color={C.brand2} />
             </Card>
           )}
+
+          <Card onPress={() => router.push('/privacidad')} style={styles.accionCard}>
+            <View style={[styles.accionIconWrap, { backgroundColor: C.surfaceAlt }]}>
+              <Ionicons name="document-text-outline" size={20} color={C.textMuted} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={T.bodyStrong}>Política de Privacidad</Text>
+              <Text style={T.caption}>Consulta cómo protegemos tu información</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={C.textFaint} />
+          </Card>
+
+          <Card onPress={() => router.push('/eliminar-cuenta')} style={styles.accionCard}>
+            <View style={[styles.accionIconWrap, { backgroundColor: alpha(C.danger, 0.14) }]}>
+              <Ionicons name="trash-outline" size={20} color={C.danger} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={T.bodyStrong}>Eliminar mi cuenta y datos</Text>
+              <Text style={T.caption}>Baja permanente e inmediata de tu cuenta</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={C.textFaint} />
+          </Card>
         </View>
 
         <Button

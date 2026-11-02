@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker } from '../../components/AppMap';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
