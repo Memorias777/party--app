@@ -20,8 +20,15 @@ function FiestaTicketCard({ item, onPress }: { item: any; onPress: () => void })
     hour: '2-digit',
     minute: '2-digit',
   });
-  const asistentes = item.participantes?.[0]?.count || 1;
   const yaPaso = new Date(item.fecha_hora).getTime() < Date.now();
+  const coverLabel =
+    !item.tiene_cover || item.info_cover === 'Sin Cover'
+      ? 'No Cover'
+      : item.precio_preventa
+      ? `Preventa $${item.precio_preventa}`
+      : item.info_cover?.startsWith('[')
+      ? 'Cover por fases'
+      : `Cover $${item.info_cover}`;
 
   return (
     <Card
@@ -50,7 +57,7 @@ function FiestaTicketCard({ item, onPress }: { item: any; onPress: () => void })
             {yaPaso ? (
               <Chip label="Finalizada" color={C.textMuted} icon="checkmark-circle" />
             ) : (
-              <Chip label={`${asistentes}`} color={colorPrincipal} icon="people" />
+              <Chip label={coverLabel} color={item.tiene_cover ? C.success : C.brand2} icon="cash-outline" />
             )}
           </View>
 

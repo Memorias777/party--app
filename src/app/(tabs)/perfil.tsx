@@ -17,9 +17,20 @@ import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '../../components/Toast';
 import ConfirmModal from '../../components/ConfirmModal';
-import { Button, Card, FiestaGlow, IconButton, ScreenHeader, SectionLabel, tap } from '../../components/ui/kit';
+import {
+  Button,
+  Card,
+  Chip,
+  EmptyState,
+  FiestaGlow,
+  IconButton,
+  ScreenHeader,
+  SectionLabel,
+  tap,
+} from '../../components/ui/kit';
 import { C, R, S, T } from '../../constants/design';
 import { alpha } from '../../utils/colors';
+import { isOwnerUser } from '../../utils/admin';
 
 interface PerfilData {
   id: string;
@@ -28,6 +39,7 @@ interface PerfilData {
   bio: string;
   avatar_url: string;
   email: string;
+  es_admin?: boolean | null;
 }
 
 const AVATARS = ['🥳', '😎', '🤩', '🎉', '🔥', '💃', '🕺', '👽', '🧑‍🎤', '👸'];
@@ -40,6 +52,7 @@ export default function PerfilScreen() {
   const [editando, setEditando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [esPropietario, setEsPropietario] = useState(false);
   const [modalLogout, setModalLogout] = useState(false);
 
   const [nombre, setNombre] = useState('');
@@ -47,8 +60,6 @@ export default function PerfilScreen() {
   const [bio, setBio] = useState('');
   const [avatarSeleccionado, setAvatarSeleccionado] = useState('🥳');
   const [email, setEmail] = useState('');
-
-  const [stats, setStats] = useState({ creadas: 0, asistidas: 0 });
 
   const cardScale = useRef(new Animated.Value(0.96)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
@@ -62,77 +73,64 @@ export default function PerfilScreen() {
     ]).start();
   }, [cardScale, cardOpacity]);
 
-  const cargarStats = useCallback(async (perfil_id: string) => {
-    const { count: creadas } = await supabase
-      .from('eventos')
-      .select('*', { count: 'exact', head: true })
-      .eq('creador_id', perfil_id);
+  const cargarPerfil = useCallback(
+    async (perfil_id: string, userEmail: string) => {
+      setCargando(true);
+      try {
+        const { data, error } = await supabase
+          .from('perfiles')
+          .select('*')
+          .eq('id', perfil_id)
+          .maybeSingle();
 
-    const { count: asistidas } = await supabase
-      .from('participantes')
-      .select('*', { count: 'exact', head: true })
-      .eq('perfil_id', perfil_id);
+        if (error) {
+          console.error('Error cargando perfil:', error);
+          showToast('No se pudo cargar tu perfil', 'error', error.message);
+        } else if (data) {
+          setPerfil(data);
+          setNombre(data.nombre || '');
+          setEdad(data.edad != null ? String(data.edad) : '');
+          setBio(data.bio || '');
+          setAvatarSeleccionado(data.avatar_url || '🥳');
+          setEsPropietario(isOwnerUser({ id: perfil_id, email: userEmail }, data));
+        } else {
+          setPerfil(null);
+          setNombre('');
+          setEdad('');
+          setBio('');
+          setAvatarSeleccionado('🥳');
+          setEsPropietario(isOwnerUser({ id: perfil_id, email: userEmail }, null));
+          setEditando(true);
+        }
 
-    setStats({ creadas: creadas || 0, asistidas: asistidas || 0 });
-  }, []);
-
-  const cargarPerfil = useCallback(async (perfil_id: string) => {
-    setCargando(true);
-    try {
-      const { data, error } = await supabase
-        .from('perfiles')
-        .select('*')
-        .eq('id', perfil_id)
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error cargando perfil:', error);
-        showToast('No se pudo cargar tu perfil', 'error', error.message);
-      } else if (data) {
-        setPerfil(data);
-        setNombre(data.nombre || '');
-        setEdad(data.edad != null ? String(data.edad) : '');
-        setBio(data.bio || '');
-        setAvatarSeleccionado(data.avatar_url || '🥳');
-      } else {
-        setPerfil(null);
-        setNombre('');
-        setEdad('');
-        setBio('');
-        setAvatarSeleccionado('🥳');
-        setEditando(true);
+        animarEntrada();
+      } catch (err: any) {
+        console.error('Error:', err);
+        showToast('Ocurrió un error al cargar tu perfil', 'error');
+      } finally {
+        setCargando(false);
       }
-
-      await cargarStats(perfil_id);
-      animarEntrada();
-    } catch (err: any) {
-      console.error('Error:', err);
-      showToast('Ocurrió un error al cargar tu perfil', 'error');
-    } finally {
-      setCargando(false);
-    }
-  }, [showToast, cargarStats, animarEntrada]);
-
-  useEffect(() => {
-    const inicializar = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error || !user) {
-        router.replace('/login');
-        return;
-      }
-      setUserId(user.id);
-      setEmail(user.email || '');
-      cargarPerfil(user.id);
-    };
-    inicializar();
-  }, [cargarPerfil]);
+    },
+    [showToast, animarEntrada]
+  );
 
   useFocusEffect(
     useCallback(() => {
-      if (userId) {
-        cargarPerfil(userId);
-      }
-    }, [userId, cargarPerfil])
+      const inicializar = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setUserId(null);
+          setPerfil(null);
+          setEsPropietario(false);
+          setCargando(false);
+          return;
+        }
+        setUserId(user.id);
+        setEmail(user.email || '');
+        cargarPerfil(user.id, user.email || '');
+      };
+      inicializar();
+    }, [cargarPerfil])
   );
 
   const guardarPerfil = async () => {
@@ -162,7 +160,7 @@ export default function PerfilScreen() {
         console.error('Error guardando perfil:', error);
         showToast('No se pudo guardar el perfil', 'error', error.message);
       } else {
-        setPerfil({ ...datosParaBD, email } as PerfilData);
+        setPerfil({ ...datosParaBD, email, es_admin: perfil?.es_admin } as PerfilData);
         setEditando(false);
         showToast('¡Perfil actualizado! 🎉', 'success');
       }
@@ -178,7 +176,10 @@ export default function PerfilScreen() {
     const { error } = await supabase.auth.signOut();
     setModalLogout(false);
     if (!error) {
-      router.replace('/login');
+      setUserId(null);
+      setPerfil(null);
+      setEsPropietario(false);
+      router.replace('/(tabs)');
     } else {
       showToast('No se pudo cerrar sesión', 'error', error.message);
     }
@@ -192,20 +193,39 @@ export default function PerfilScreen() {
     );
   }
 
+  // Vista sin sesión: no fuerza redirección a login para permitir navegación libre
+  if (!userId) {
+    return (
+      <View style={styles.container}>
+        <ScreenHeader title="Tu Perfil" subtitle="Cuenta y preferencias" />
+        <View style={styles.centerContent}>
+          <EmptyState
+            icon="person-outline"
+            title="Explora sin cuenta o inicia sesión"
+            message="Puedes ver todas las fiestas y sus detalles libremente. Inicia sesión si quieres guardar fiestas o participar en el chat."
+            action={
+              <Button
+                title="Iniciar Sesión / Crear Cuenta"
+                icon="log-in-outline"
+                onPress={() => router.push('/login')}
+              />
+            }
+          />
+        </View>
+      </View>
+    );
+  }
+
   // -----------------------------------------------------------------
-  // MODO EDICIÓN: el formulario completo
+  // MODO EDICIÓN
   // -----------------------------------------------------------------
   if (editando) {
     return (
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
         <ScreenHeader
           title="Editar Perfil"
-          subtitle="Personaliza cómo te ven los demás"
-          right={
-            perfil ? (
-              <IconButton name="close" onPress={() => setEditando(false)} />
-            ) : undefined
-          }
+          subtitle="Personaliza tu cuenta"
+          right={perfil ? <IconButton name="close" onPress={() => setEditando(false)} /> : undefined}
         />
 
         <ScrollView
@@ -298,7 +318,7 @@ export default function PerfilScreen() {
   }
 
   // -----------------------------------------------------------------
-  // MODO VISTA RÁPIDA: tarjeta de presentación + accesos
+  // MODO VISTA RÁPIDA (sin gamificación ni puntos; acceso exclusivo al propietario)
   // -----------------------------------------------------------------
   return (
     <View style={styles.container}>
@@ -320,27 +340,18 @@ export default function PerfilScreen() {
                 <Text style={styles.presentAvatar}>{avatarSeleccionado}</Text>
               </View>
 
-              <Text style={[T.title, { marginTop: S.md }]}>{nombre || 'Sin nombre'}</Text>
-              {edad ? <Text style={[T.caption, { marginTop: 2 }]}>{edad} años</Text> : null}
-              {bio ? (
-                <Text style={[T.body, styles.presentBio]}>{bio}</Text>
-              ) : (
-                <Text style={[T.caption, { fontStyle: 'italic', marginTop: S.sm }]}>
-                  Aún no has escrito tu bio
-                </Text>
+              {esPropietario && (
+                <View style={{ marginTop: S.sm }}>
+                  <Chip label="Propietario · Admin" color={C.brand} icon="shield-checkmark" />
+                </View>
               )}
 
-              <View style={styles.statsRow}>
-                <View style={styles.statBox}>
-                  <Text style={styles.statNumber}>{stats.creadas}</Text>
-                  <Text style={T.caption}>Fiestas creadas</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statBox}>
-                  <Text style={styles.statNumber}>{stats.asistidas}</Text>
-                  <Text style={T.caption}>Fiestas asistidas</Text>
-                </View>
-              </View>
+              <Text style={[T.title, { marginTop: S.sm }]}>{nombre || 'Sin nombre'}</Text>
+              {edad ? <Text style={[T.caption, { marginTop: 2 }]}>{edad} años</Text> : null}
+              {email ? <Text style={[T.caption, { marginTop: 2 }]}>{email}</Text> : null}
+              {bio ? (
+                <Text style={[T.body, styles.presentBio]}>{bio}</Text>
+              ) : null}
             </View>
           </Card>
         </Animated.View>
@@ -357,16 +368,22 @@ export default function PerfilScreen() {
             <Ionicons name="chevron-forward" size={20} color={C.textFaint} />
           </Card>
 
-          <Card onPress={() => router.push('/(tabs)/crear')} style={styles.accionCard}>
-            <View style={[styles.accionIconWrap, { backgroundColor: alpha(C.brand2, 0.18) }]}>
-              <Ionicons name="sparkles" size={20} color={C.brand2} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={T.bodyStrong}>Mis Fiestas Organizadas</Text>
-              <Text style={T.caption}>Crea una nueva o edita las que ya tienes</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={C.textFaint} />
-          </Card>
+          {esPropietario && (
+            <Card
+              onPress={() => router.push('/(tabs)/crear')}
+              style={[styles.accionCard, { borderColor: alpha(C.brand2, 0.45) }]}
+            >
+              <FiestaGlow colores={[C.brand2, C.brand]} intensity={0.28} />
+              <View style={[styles.accionIconWrap, { backgroundColor: alpha(C.brand2, 0.22) }]}>
+                <Ionicons name="sparkles" size={20} color={C.brand2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={T.bodyStrong}>Panel de Propietario: Fiestas</Text>
+                <Text style={T.caption}>Publica eventos nuevos, repite sedes o edita carteleras</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={C.brand2} />
+            </Card>
+          )}
         </View>
 
         <Button
@@ -380,7 +397,7 @@ export default function PerfilScreen() {
       <ConfirmModal
         visible={modalLogout}
         title="¿Cerrar sesión?"
-        message="Tendrás que iniciar sesión de nuevo para volver a usar la app."
+        message="Seguirás pudiendo explorar el mapa y ver los eventos libremente."
         confirmText="Cerrar sesión"
         destructive
         onCancel={() => setModalLogout(false)}
@@ -392,7 +409,7 @@ export default function PerfilScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  centerContent: { alignItems: 'center', justifyContent: 'center' },
+  centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { paddingHorizontal: S.xl, paddingTop: S.xs },
 
   presentCard: {
@@ -419,17 +436,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: S.md,
     color: C.textMuted,
   },
-  statsRow: {
-    flexDirection: 'row',
-    width: '100%',
-    marginTop: S.xl,
-    paddingTop: S.lg,
-    borderTopWidth: 1,
-    borderTopColor: C.border,
-  },
-  statBox: { flex: 1, alignItems: 'center', gap: 2 },
-  statDivider: { width: 1, backgroundColor: C.border },
-  statNumber: { color: C.brand, fontSize: 24, fontWeight: '800' },
 
   accionesContainer: { gap: S.md, marginBottom: S.xl },
   accionCard: {

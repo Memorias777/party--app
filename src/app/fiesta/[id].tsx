@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -8,6 +9,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -19,8 +21,18 @@ import { supabase } from '../../../supabase';
 import ConfirmModal from '../../components/ConfirmModal';
 import ImageViewer from '../../components/ImageViewer';
 import { useToast } from '../../components/Toast';
-import { Button, Card, Chip, EmptyState, FiestaGlow, IconButton, tap } from '../../components/ui/kit';
+import {
+  Button,
+  Card,
+  Chip,
+  EmptyState,
+  FiestaGlow,
+  IconButton,
+  SectionLabel,
+  tap,
+} from '../../components/ui/kit';
 import { C, R, S, T } from '../../constants/design';
+import { isOwnerUser } from '../../utils/admin';
 import { alpha, textoSobre, useColoresFiesta } from '../../utils/colors';
 import { seleccionarYSubirImagen } from '../../utils/uploadImage';
 
@@ -40,6 +52,7 @@ export default function FiestaDetailScreen() {
   const [tabActual, setTabActual] = useState<'general' | 'avisos'>('avisos');
 
   const [userId, setUserId] = useState<string | null>(null);
+  const [esPropietario, setEsPropietario] = useState(false);
   const [mensajes, setMensajes] = useState<any[]>([]);
   const [nuevoMensaje, setNuevoMensaje] = useState('');
   const [fotoAdjuntaUrl, setFotoAdjuntaUrl] = useState<string | null>(null);
@@ -47,7 +60,6 @@ export default function FiestaDetailScreen() {
   const [enviando, setEnviando] = useState(false);
   const [esParticipante, setEsParticipante] = useState(false);
   const [uniendo, setUniendo] = useState(false);
-  const [asistentes, setAsistentes] = useState(1);
   const [modalUnirse, setModalUnirse] = useState(false);
 
   // Estados para gestión de mensajes (menú contextual, editar, borrar)
@@ -68,11 +80,21 @@ export default function FiestaDetailScreen() {
   useEffect(() => {
     const iniciarSala = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      let currentUserId = null;
+      let currentUserId: string | null = null;
+      let ownerFlag = false;
 
       if (user) {
         currentUserId = user.id;
         setUserId(currentUserId);
+
+        const { data: perfilData } = await supabase
+          .from('perfiles')
+          .select('es_admin')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        ownerFlag = isOwnerUser(user, perfilData);
+        setEsPropietario(ownerFlag);
       }
 
       const { data: eventoData, error: eventoError } = await supabase
@@ -90,28 +112,23 @@ export default function FiestaDetailScreen() {
             .select('*')
             .eq('evento_id', id)
             .eq('perfil_id', currentUserId)
-            .single();
+            .maybeSingle();
 
-          if (participacion || eventoData.creador_id === currentUserId) {
+          if (participacion || eventoData.creador_id === currentUserId || ownerFlag) {
             setEsParticipante(true);
           }
         }
       }
 
-      const { count } = await supabase
-        .from('participantes')
-        .select('*', { count: 'exact', head: true })
-        .eq('evento_id', id);
-
-      setAsistentes(count || 1);
       setCargando(false);
     };
 
     if (id) iniciarSala();
   }, [id]);
 
+  // Avisos se cargan para todos (incluso sin login); chat general también es visible
   useEffect(() => {
-    if (!id || !esParticipante) return;
+    if (!id) return;
 
     const fetchMensajes = async () => {
       const { data } = await supabase
@@ -158,24 +175,30 @@ export default function FiestaDetailScreen() {
     return () => {
       supabase.removeChannel(canalChat);
     };
-  }, [id, tabActual, esParticipante]);
+  }, [id, tabActual]);
 
   const unirseAFiesta = async () => {
-    if (!userId) return;
+    if (!userId) {
+      router.push('/login');
+      return;
+    }
     setUniendo(true);
 
     const { error } = await supabase.from('participantes').insert([
-      { evento_id: id, perfil_id: userId, es_admin: userId === evento?.creador_id },
+      {
+        evento_id: id,
+        perfil_id: userId,
+        es_admin: userId === evento?.creador_id || esPropietario,
+      },
     ]);
 
     setUniendo(false);
 
     if (error) {
-      showToast('Hubo un problema al unirte a la fiesta', 'error');
+      showToast('Hubo un problema al guardar la fiesta', 'error');
     } else {
       setEsParticipante(true);
-      setAsistentes((prev) => prev + 1);
-      showToast('¡Te uniste a la fiesta! 🥳', 'success');
+      showToast('¡Fiesta guardada en Tus Fiestas! 🥳', 'success');
     }
   };
 
@@ -194,14 +217,19 @@ export default function FiestaDetailScreen() {
     }
   };
 
+  const esAdmin = evento?.creador_id === userId || esPropietario;
+
   const enviarMensaje = async () => {
     const contenido = nuevoMensaje.trim();
     const foto = fotoAdjuntaUrl;
 
     if (!contenido && !foto) return;
-    if (!userId) return;
+    if (!userId) {
+      router.push('/login');
+      return;
+    }
 
-    if (tabActual === 'avisos' && evento?.creador_id !== userId) {
+    if (tabActual === 'avisos' && !esAdmin) {
       showToast('Solo el administrador puede publicar avisos', 'error');
       return;
     }
@@ -230,7 +258,6 @@ export default function FiestaDetailScreen() {
 
   const handleLongPressMensaje = (msg: any) => {
     const esMio = msg.perfil_id === userId;
-    const esAdmin = evento?.creador_id === userId;
     if (esMio || esAdmin) {
       tap();
       setMensajeSeleccionado(msg);
@@ -292,6 +319,50 @@ export default function FiestaDetailScreen() {
     setFotoVisor(url);
   };
 
+  const abrirEnGoogleMaps = async () => {
+    if (!evento) return;
+    tap();
+    const lat = Number(evento.latitud);
+    const lng = Number(evento.longitud);
+    const label = encodeURIComponent(evento.lugar || evento.titulo || 'Fiesta');
+    const url =
+      !isNaN(lat) && !isNaN(lng) && (lat !== 0 || lng !== 0)
+        ? `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${label}`;
+    try {
+      await Linking.openURL(url);
+    } catch {
+      showToast('No se pudo abrir Google Maps', 'error');
+    }
+  };
+
+  const compartirFiesta = async () => {
+    if (!evento) return;
+    tap();
+    const shareUrl =
+      Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.href
+        : Linking.createURL(`/fiesta/${id}`);
+
+    const fechaStr = formatearFechaEvento(evento.fecha_hora);
+    const mensaje = `🎉 *${evento.titulo}*\n📍 ${evento.lugar}${evento.direccion ? ` (${evento.direccion})` : ''}\n🗓️ ${fechaStr}\n\nMira toda la info, covers y promociones aquí:\n${shareUrl}`;
+
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        showToast('Enlace copiado al portapapeles 🔗', 'success');
+        return;
+      }
+      await Share.share({
+        title: evento.titulo,
+        message: mensaje,
+        url: shareUrl,
+      });
+    } catch {
+      showToast('No se pudo compartir el enlace', 'error');
+    }
+  };
+
   const formatearHora = (timestamp: string) => {
     if (!timestamp) return '';
     const fecha = new Date(timestamp);
@@ -302,7 +373,7 @@ export default function FiestaDetailScreen() {
     if (!fechaISO) return '';
     try {
       return new Date(fechaISO).toLocaleString('es-MX', {
-        weekday: 'short',
+        weekday: 'long',
         day: 'numeric',
         month: 'short',
         hour: '2-digit',
@@ -313,8 +384,19 @@ export default function FiestaDetailScreen() {
     }
   };
 
-  const esAdmin = evento?.creador_id === userId;
-  const puedeEscribirEnTabActual = tabActual === 'general' || esAdmin;
+  // Parseo de etapas de cover si info_cover es un JSON
+  const parsearEtapasCover = (info?: string): { precio: string; fechas: string }[] | null => {
+    if (!info || !info.startsWith('[')) return null;
+    try {
+      const arr = JSON.parse(info);
+      return Array.isArray(arr) ? arr : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const puedeEscribirEnTabActual =
+    Boolean(userId) && (tabActual === 'avisos' ? esAdmin : esParticipante);
 
   if (cargando) {
     return (
@@ -324,6 +406,14 @@ export default function FiestaDetailScreen() {
     );
   }
 
+  const etapasCover = parsearEtapasCover(evento?.info_cover);
+  const dinamicasLista: string[] = Array.isArray(evento?.dinamicas)
+    ? evento.dinamicas.filter(Boolean)
+    : [];
+  const generosLista: string[] = Array.isArray(evento?.generos)
+    ? evento.generos.filter(Boolean)
+    : [];
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -332,11 +422,11 @@ export default function FiestaDetailScreen() {
     >
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header con glow de los colores del logo de la fiesta */}
+      {/* Header con logo, botón de compartir y botón de edición solo para propietario */}
       <View style={[styles.header, { paddingTop: insets.top + S.sm }]}>
         <FiestaGlow colores={coloresFiesta} intensity={0.65} />
 
-        <IconButton name="chevron-down" onPress={() => router.back()} bg={alpha(C.bg, 0.5)} />
+        <IconButton name="chevron-down" onPress={() => router.back()} bg={alpha(C.bg, 0.55)} />
 
         <View style={styles.headerTitleContainer}>
           {evento?.link_logo ? (
@@ -345,30 +435,245 @@ export default function FiestaDetailScreen() {
               style={[styles.headerLogoAvatar, { borderColor: colorAcento }]}
             />
           ) : (
-            <Text style={{ fontSize: 20, marginRight: 6 }}>{evento?.emoji || '🥳'}</Text>
+            <Text style={{ fontSize: 20, marginRight: 4 }}>{evento?.emoji || '🥳'}</Text>
           )}
           <View style={{ flex: 1 }}>
             <Text style={T.subtitle} numberOfLines={1}>
               {evento?.titulo}
             </Text>
             <Text style={T.caption} numberOfLines={1}>
-              {asistentes} {asistentes === 1 ? 'asistente' : 'asistentes'}
+              {evento?.lugar}
             </Text>
           </View>
         </View>
 
-        {esAdmin ? (
+        <View style={styles.headerActions}>
           <IconButton
-            name="settings-outline"
-            onPress={() => router.push({ pathname: '/crear', params: { id: id } })}
-            bg={alpha(C.bg, 0.5)}
+            name="share-social-outline"
+            onPress={compartirFiesta}
+            bg={alpha(C.bg, 0.55)}
+            color={colorAcento}
           />
-        ) : (
-          <View style={{ width: 40 }} />
-        )}
+          {esAdmin && (
+            <IconButton
+              name="settings-outline"
+              onPress={() => router.push({ pathname: '/(tabs)/crear', params: { id: String(id) } })}
+              bg={alpha(C.bg, 0.55)}
+            />
+          )}
+        </View>
       </View>
 
-      {esParticipante && (
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.body}
+        contentContainerStyle={{ paddingBottom: S.xxl }}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+          const distanciaAlFondo = contentSize.height - layoutMeasurement.height - contentOffset.y;
+          isScrolledUp.current = distanciaAlFondo > 100;
+        }}
+      >
+        {/* 1. FICHA PRINCIPAL DEL EVENTO */}
+        <Card style={[styles.fichaCard, { borderColor: alpha(colorAcento, 0.4) }]}>
+          <FiestaGlow colores={coloresFiesta} intensity={0.4} />
+
+          <View style={styles.heroRow}>
+            <View style={[styles.heroLogoWrap, { borderColor: colorAcento }]}>
+              {evento?.link_logo ? (
+                <Image source={{ uri: evento.link_logo }} style={styles.heroLogoImage} />
+              ) : (
+                <Text style={{ fontSize: 36 }}>{evento?.emoji || '🥳'}</Text>
+              )}
+            </View>
+
+            <View style={{ flex: 1, gap: 6 }}>
+              <View style={styles.chipsRow}>
+                {evento?.tipo_fiesta ? (
+                  <Chip label={evento.tipo_fiesta} color={colorAcento} icon="flame" />
+                ) : null}
+                {evento?.solo_mayores ? (
+                  <Chip label="+18 con INE" color={C.warning} icon="id-card-outline" />
+                ) : (
+                  <Chip label="Todas las edades" color={C.success} />
+                )}
+                {evento?.es_byob ? (
+                  <Chip label="BYOB / Descorche" color={C.brand2} icon="beer-outline" />
+                ) : null}
+              </View>
+              <Text style={T.title}>{evento?.titulo}</Text>
+            </View>
+          </View>
+
+          {evento?.descripcion ? (
+            <Text style={[T.body, { color: C.textMuted, marginTop: S.sm }]}>
+              {evento.descripcion}
+            </Text>
+          ) : null}
+
+          {/* Horario, Géneros y Vestimenta */}
+          <View style={styles.infoGrid}>
+            <View style={styles.infoGridItem}>
+              <Ionicons name="time-outline" size={18} color={colorAcento} />
+              <View style={{ flex: 1 }}>
+                <Text style={T.micro}>HORARIO</Text>
+                <Text style={T.bodyStrong}>
+                  {formatearFechaEvento(evento?.fecha_hora)}
+                  {evento?.hora_fin ? ` – ${evento.hora_fin}` : ''}
+                </Text>
+              </View>
+            </View>
+
+            {evento?.vestimenta ? (
+              <View style={styles.infoGridItem}>
+                <Ionicons name="shirt-outline" size={18} color={colorAcento} />
+                <View style={{ flex: 1 }}>
+                  <Text style={T.micro}>VESTIMENTA / REQUISITOS</Text>
+                  <Text style={T.bodyStrong}>{evento.vestimenta}</Text>
+                </View>
+              </View>
+            ) : null}
+
+            {generosLista.length > 0 && (
+              <View style={styles.infoGridItem}>
+                <Ionicons name="musical-notes-outline" size={18} color={colorAcento} />
+                <View style={{ flex: 1 }}>
+                  <Text style={T.micro}>MÚSICA Y AMBIENTE</Text>
+                  <View style={[styles.chipsRow, { marginTop: 4 }]}>
+                    {generosLista.map((gen) => (
+                      <Chip key={gen} label={gen} color={colorAcento} />
+                    ))}
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Precios y Covers claros */}
+          <View style={styles.sectionBlock}>
+            <SectionLabel>Precios y Cover</SectionLabel>
+            {!evento?.tiene_cover || evento?.info_cover === 'Sin Cover' ? (
+              <View style={[styles.priceBanner, { borderColor: alpha(C.success, 0.4), backgroundColor: alpha(C.success, 0.1) }]}>
+                <Ionicons name="sparkles" size={20} color={C.success} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[T.subtitle, { color: C.success }]}>No Cover (Entrada Libre)</Text>
+                  <Text style={T.caption}>Acceso gratuito sujeto a aforo del lugar</Text>
+                </View>
+              </View>
+            ) : etapasCover ? (
+              <View style={styles.pricesColumn}>
+                {etapasCover.map((et, i) => (
+                  <View key={i} style={styles.priceRowCard}>
+                    <Text style={T.bodyStrong}>{et.fechas || `Fase ${i + 1}`}</Text>
+                    <Text style={[T.subtitle, { color: colorAcento }]}>${et.precio}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.pricesRow}>
+                {evento?.precio_preventa ? (
+                  <View style={[styles.priceBox, { borderColor: alpha(colorAcento, 0.45) }]}>
+                    <Text style={T.micro}>PREVENTA</Text>
+                    <Text style={[T.title, { color: colorAcento, marginTop: 2 }]}>
+                      ${evento.precio_preventa}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={styles.priceBox}>
+                  <Text style={T.micro}>COVER GENERAL</Text>
+                  <Text style={[T.title, { marginTop: 2 }]}>${evento?.info_cover}</Text>
+                </View>
+              </View>
+            )}
+          </View>
+
+          {/* Dinámicas y Promociones de la noche */}
+          {(dinamicasLista.length > 0 || evento?.es_byob) && (
+            <View style={styles.sectionBlock}>
+              <SectionLabel>Dinámicas y Promociones</SectionLabel>
+              <View style={styles.promosList}>
+                {dinamicasLista.map((promo, idx) => (
+                  <View
+                    key={idx}
+                    style={[
+                      styles.promoItem,
+                      { borderColor: alpha(colorAcento, 0.3), backgroundColor: alpha(colorAcento, 0.09) },
+                    ]}
+                  >
+                    <Ionicons name="gift" size={18} color={colorAcento} />
+                    <Text style={[T.bodyStrong, { flex: 1 }]}>{promo}</Text>
+                  </View>
+                ))}
+                {evento?.es_byob && !dinamicasLista.some((d) => d.toLowerCase().includes('byob') || d.toLowerCase().includes('descorche')) && (
+                  <View
+                    style={[
+                      styles.promoItem,
+                      { borderColor: alpha(C.brand2, 0.35), backgroundColor: alpha(C.brand2, 0.1) },
+                    ]}
+                  >
+                    <Ionicons name="beer" size={18} color={C.brand2} />
+                    <Text style={[T.bodyStrong, { flex: 1 }]}>
+                      Se permite llevar tu propia bebida (BYOB / Descorche)
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Ubicación + Cómo llegar + Compartir */}
+          <View style={styles.sectionBlock}>
+            <SectionLabel>Ubicación y Cómo Llegar</SectionLabel>
+            <View style={styles.locationBox}>
+              <View style={{ flex: 1, gap: 2 }}>
+                <Text style={T.subtitle}>{evento?.lugar}</Text>
+                {evento?.direccion ? (
+                  <Text style={T.caption}>{evento.direccion}</Text>
+                ) : (
+                  <Text style={T.caption}>Zacatecas</Text>
+                )}
+              </View>
+              <Button
+                title="Google Maps"
+                icon="navigate"
+                color={colorAcento}
+                small
+                onPress={abrirEnGoogleMaps}
+              />
+            </View>
+
+            <View style={styles.actionButtonsRow}>
+              <Button
+                title="Compartir enlace"
+                icon="share-social-outline"
+                variant="secondary"
+                small
+                onPress={compartirFiesta}
+                style={{ flex: 1 }}
+              />
+              {!esParticipante && (
+                <Button
+                  title="Guardar en Mis Fiestas"
+                  icon="bookmark-outline"
+                  color={colorAcento}
+                  small
+                  loading={uniendo}
+                  onPress={() => {
+                    if (!userId) {
+                      router.push('/login');
+                    } else {
+                      setModalUnirse(true);
+                    }
+                  }}
+                  style={{ flex: 1 }}
+                />
+              )}
+            </View>
+          </View>
+        </Card>
+
+        {/* 2. SECCIÓN DE AVISOS (PRIMERO) Y CHAT GENERAL (SECUNDARIO) */}
         <View style={styles.tabWrapper}>
           <View style={styles.tabContainer}>
             <TouchableOpacity
@@ -392,7 +697,7 @@ export default function FiestaDetailScreen() {
                   tabActual === 'avisos' && { color: fgSobreAcento, fontWeight: '700' },
                 ]}
               >
-                Avisos
+                Avisos Oficiales
               </Text>
             </TouchableOpacity>
 
@@ -422,173 +727,122 @@ export default function FiestaDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      )}
 
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.body}
-        contentContainerStyle={{ paddingBottom: S.xxl }}
-        scrollEventThrottle={16}
-        onScroll={(event) => {
-          const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-          const distanciaAlFondo = contentSize.height - layoutMeasurement.height - contentOffset.y;
-          isScrolledUp.current = distanciaAlFondo > 100;
-        }}
-        onContentSizeChange={() => {
-          if (!isScrolledUp.current) {
-            scrollViewRef.current?.scrollToEnd({ animated: true });
-          }
-        }}
-      >
-        {/* Tarjeta resumen de la fiesta siempre a la mano */}
-        <Card style={[styles.infoCard, { borderColor: alpha(colorAcento, 0.35) }]}>
-          <FiestaGlow colores={coloresFiesta} intensity={0.35} />
-          <View style={styles.infoRow}>
-            <View style={[styles.heroLogoWrap, { borderColor: colorAcento }]}>
-              {evento?.link_logo ? (
-                <Image source={{ uri: evento.link_logo }} style={styles.heroLogoImage} />
-              ) : (
-                <Text style={{ fontSize: 32 }}>{evento?.emoji || '🥳'}</Text>
-              )}
-            </View>
-
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={styles.chipsRow}>
-                {evento?.tipo_fiesta ? (
-                  <Chip label={evento.tipo_fiesta} color={colorAcento} />
-                ) : null}
-                {evento?.es_byob ? <Chip label="BYOB" color={C.textMuted} icon="beer" /> : null}
-                {evento?.solo_mayores ? <Chip label="+18" color={C.warning} /> : null}
-              </View>
-              <View style={styles.metaLine}>
-                <Ionicons name="location-outline" size={14} color={colorAcento} />
-                <Text style={T.bodyStrong} numberOfLines={1}>
-                  {evento?.lugar}
+        <View style={styles.chatArea}>
+          {tabActual === 'general' && !esParticipante && (
+            <Card style={styles.joinBannerCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={T.bodyStrong}>¿Quieres escribir en el chat?</Text>
+                <Text style={T.caption}>
+                  {userId
+                    ? 'Guarda esta fiesta en tu lista para participar en la conversación.'
+                    : 'Inicia sesión para guardar la fiesta y participar en el chat.'}
                 </Text>
               </View>
-              {evento?.fecha_hora ? (
-                <View style={styles.metaLine}>
-                  <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
-                  <Text style={T.caption}>{formatearFechaEvento(evento.fecha_hora)}</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        </Card>
-
-        {!esParticipante ? (
-          <View style={styles.joinContainer}>
-            <View style={[styles.lockIconContainer, { backgroundColor: alpha(colorAcento, 0.16) }]}>
-              <Ionicons name="lock-closed" size={36} color={colorAcento} />
-            </View>
-            <Text style={T.title}>Sala de la Fiesta</Text>
-            <Text style={[T.caption, styles.joinText]}>
-              Únete a esta fiesta para confirmar tu asistencia, ver los avisos oficiales y participar en el chat.
-            </Text>
-            <Button
-              title="Unirme a la Fiesta"
-              icon="sparkles"
-              color={colorAcento}
-              loading={uniendo}
-              onPress={() => setModalUnirse(true)}
-              style={{ width: '100%' }}
-            />
-          </View>
-        ) : (
-          <View style={styles.chatArea}>
-            {mensajes.length === 0 ? (
-              <EmptyState
-                icon={tabActual === 'general' ? 'chatbubbles-outline' : 'megaphone-outline'}
-                title={
-                  tabActual === 'general'
-                    ? 'El chat está vacío'
-                    : 'Aún no hay avisos del organizador'
-                }
-                message={
-                  tabActual === 'general'
-                    ? '¡Rompe el hielo con el primer mensaje!'
-                    : 'Aquí aparecerán los anuncios importantes, ubicación exacta y fotos oficiales.'
-                }
+              <Button
+                title={userId ? 'Unirme' : 'Entrar'}
+                color={colorAcento}
+                small
+                onPress={() => {
+                  if (!userId) router.push('/login');
+                  else unirseAFiesta();
+                }}
               />
-            ) : (
-              mensajes.map((msg, index) => {
-                const esMio = msg.perfil_id === userId;
+            </Card>
+          )}
 
-                if (tabActual === 'avisos') {
-                  return (
-                    <Card
-                      key={msg.id || index}
-                      onLongPress={() => handleLongPressMensaje(msg)}
-                      style={[
-                        styles.avisoCard,
-                        { borderLeftColor: colorAcento, borderColor: alpha(colorAcento, 0.25) },
-                      ]}
-                    >
-                      <View style={styles.avisoHeader}>
-                        <View style={[styles.avisoBadge, { backgroundColor: alpha(colorAcento, 0.16) }]}>
-                          <Ionicons name="megaphone" size={13} color={colorAcento} />
-                          <Text style={[styles.avisoBadgeText, { color: colorAcento }]}>
-                            AVISO OFICIAL
-                          </Text>
-                        </View>
-                        <Text style={T.micro}>{formatearHora(msg.creado_en)}</Text>
-                      </View>
+          {mensajes.length === 0 ? (
+            <EmptyState
+              icon={tabActual === 'general' ? 'chatbubbles-outline' : 'megaphone-outline'}
+              title={
+                tabActual === 'general'
+                  ? 'El chat está vacío'
+                  : 'Aún no hay avisos publicados'
+              }
+              message={
+                tabActual === 'general'
+                  ? '¡Rompe el hielo con el primer mensaje!'
+                  : 'Aquí aparecerán los anuncios en vivo, flyers y fotos oficiales de la fiesta.'
+              }
+            />
+          ) : (
+            mensajes.map((msg, index) => {
+              const esMio = msg.perfil_id === userId;
 
-                      {msg.link_foto ? (
-                        <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
-                          <Image source={{ uri: msg.link_foto }} style={styles.avisoImagen} />
-                        </TouchableOpacity>
-                      ) : null}
-
-                      {msg.contenido ? <Text style={T.body}>{msg.contenido}</Text> : null}
-                    </Card>
-                  );
-                }
-
+              if (tabActual === 'avisos') {
                 return (
-                  <View
+                  <Card
                     key={msg.id || index}
+                    onLongPress={() => handleLongPressMensaje(msg)}
                     style={[
-                      styles.burbujaContenedor,
-                      esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena,
+                      styles.avisoCard,
+                      { borderLeftColor: colorAcento, borderColor: alpha(colorAcento, 0.25) },
                     ]}
                   >
-                    <TouchableOpacity
-                      activeOpacity={0.85}
-                      onLongPress={() => handleLongPressMensaje(msg)}
-                      style={[
-                        styles.burbuja,
-                        esMio
-                          ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 }
-                          : styles.burbujaAjena,
-                      ]}
-                    >
-                      {msg.link_foto ? (
-                        <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
-                          <Image source={{ uri: msg.link_foto }} style={styles.mensajeImagen} />
-                        </TouchableOpacity>
-                      ) : null}
-                      {msg.contenido ? (
-                        <Text
-                          style={[
-                            styles.mensajeTexto,
-                            { color: esMio ? fgSobreAcento : C.text },
-                          ]}
-                        >
-                          {msg.contenido}
+                    <View style={styles.avisoHeader}>
+                      <View style={[styles.avisoBadge, { backgroundColor: alpha(colorAcento, 0.16) }]}>
+                        <Ionicons name="megaphone" size={13} color={colorAcento} />
+                        <Text style={[styles.avisoBadgeText, { color: colorAcento }]}>
+                          AVISO OFICIAL
                         </Text>
-                      ) : null}
-                    </TouchableOpacity>
-                    <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
-                  </View>
+                      </View>
+                      <Text style={T.micro}>{formatearHora(msg.creado_en)}</Text>
+                    </View>
+
+                    {msg.link_foto ? (
+                      <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
+                        <Image source={{ uri: msg.link_foto }} style={styles.avisoImagen} />
+                      </TouchableOpacity>
+                    ) : null}
+
+                    {msg.contenido ? <Text style={T.body}>{msg.contenido}</Text> : null}
+                  </Card>
                 );
-              })
-            )}
-          </View>
-        )}
+              }
+
+              return (
+                <View
+                  key={msg.id || index}
+                  style={[
+                    styles.burbujaContenedor,
+                    esMio ? styles.burbujaContenedorMia : styles.burbujaContenedorAjena,
+                  ]}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    onLongPress={() => handleLongPressMensaje(msg)}
+                    style={[
+                      styles.burbuja,
+                      esMio
+                        ? { backgroundColor: colorAcento, borderBottomRightRadius: 4 }
+                        : styles.burbujaAjena,
+                    ]}
+                  >
+                    {msg.link_foto ? (
+                      <TouchableOpacity onPress={() => abrirFoto(msg.link_foto)} activeOpacity={0.9}>
+                        <Image source={{ uri: msg.link_foto }} style={styles.mensajeImagen} />
+                      </TouchableOpacity>
+                    ) : null}
+                    {msg.contenido ? (
+                      <Text
+                        style={[
+                          styles.mensajeTexto,
+                          { color: esMio ? fgSobreAcento : C.text },
+                        ]}
+                      >
+                        {msg.contenido}
+                      </Text>
+                    ) : null}
+                  </TouchableOpacity>
+                  <Text style={styles.horaTexto}>{formatearHora(msg.creado_en)}</Text>
+                </View>
+              );
+            })
+          )}
+        </View>
       </ScrollView>
 
-      {esParticipante && puedeEscribirEnTabActual && (
+      {puedeEscribirEnTabActual && (
         <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, S.md) }]}>
           {fotoAdjuntaUrl && (
             <View style={styles.fotoAdjuntaContainer}>
@@ -730,9 +984,9 @@ export default function FiestaDetailScreen() {
 
       <ConfirmModal
         visible={modalUnirse}
-        title="Unirte a la fiesta 🥳"
-        message="Vas a confirmar tu asistencia y podrás ver el chat y los avisos del administrador."
-        confirmText="Unirme"
+        title="Guardar en Mis Fiestas 🥳"
+        message="Esta fiesta aparecerá en tu pestaña 'Fiestas' y podrás escribir en el chat general."
+        confirmText="Guardar"
         onCancel={() => setModalUnirse(false)}
         onConfirm={() => {
           setModalUnirse(false);
@@ -781,21 +1035,28 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     borderWidth: 2,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
   body: { flex: 1 },
-  infoCard: {
+  fichaCard: {
     marginHorizontal: S.lg,
     marginTop: S.md,
-    marginBottom: S.sm,
-    padding: S.md,
+    marginBottom: S.md,
+    padding: S.lg,
+    gap: S.md,
   },
-  infoRow: {
+  heroRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: S.md,
   },
   heroLogoWrap: {
-    width: 58,
-    height: 58,
+    width: 68,
+    height: 68,
     borderRadius: R.lg,
     borderWidth: 2,
     backgroundColor: C.surfaceAlt,
@@ -811,39 +1072,94 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 2,
-  },
-  metaLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
   },
 
-  joinContainer: {
-    alignItems: 'center',
-    paddingHorizontal: S.xxl,
-    marginTop: S.xxxl,
+  infoGrid: {
+    backgroundColor: alpha(C.bg, 0.5),
+    borderRadius: R.md,
+    padding: S.md,
+    borderWidth: 1,
+    borderColor: C.border,
+    gap: S.md,
   },
-  lockIconContainer: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: S.lg,
+  infoGridItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  joinText: {
-    textAlign: 'center',
+
+  sectionBlock: {
+    paddingTop: S.sm,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  priceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.md,
+    padding: S.md,
+    borderRadius: R.md,
+    borderWidth: 1,
+  },
+  pricesRow: {
+    flexDirection: 'row',
+    gap: S.sm,
+  },
+  priceBox: {
+    flex: 1,
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.md,
+    padding: S.md,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  pricesColumn: {
+    gap: S.xs,
+  },
+  priceRowCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: C.surfaceAlt,
+    borderRadius: R.md,
+    paddingHorizontal: S.md,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+
+  promosList: {
+    gap: S.xs,
+  },
+  promoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: S.md,
+    paddingVertical: 11,
+    borderRadius: R.md,
+    borderWidth: 1,
+  },
+
+  locationBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.md,
+    backgroundColor: C.surfaceAlt,
+    padding: S.md,
+    borderRadius: R.md,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: S.sm,
     marginTop: S.sm,
-    marginBottom: S.xl,
-    lineHeight: 20,
   },
 
   tabWrapper: {
     paddingHorizontal: S.lg,
-    paddingVertical: S.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
+    marginBottom: S.sm,
   },
   tabContainer: {
     flexDirection: 'row',
@@ -870,7 +1186,14 @@ const styles = StyleSheet.create({
 
   chatArea: {
     paddingHorizontal: S.lg,
-    paddingTop: S.sm,
+    paddingTop: S.xs,
+  },
+  joinBannerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.md,
+    padding: S.md,
+    marginBottom: S.md,
   },
   avisoCard: {
     padding: S.lg,
